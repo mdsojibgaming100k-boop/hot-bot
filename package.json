@@ -10,18 +10,8 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "keywords": [
-    "whatsapp",
-    "baileys",
-    "gemini-ai",
-    "techxzone",
-    "ecommerce-bot",
-    "fast-reply"
-  ],
-  "author": "TechXZone Engineering",
-  "license": "ISC",
   "dependencies": {
-    "@google/genai": "^0.1.2",
+    "@google/genai": "^2.0.0",
     "@whiskeysockets/baileys": "^6.7.9",
     "axios": "^1.7.9",
     "cors": "^2.8.5",
