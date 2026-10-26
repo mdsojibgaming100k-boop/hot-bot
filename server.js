@@ -1,6 +1,10 @@
 /**
  * TechXZone Production-Ready WhatsApp AI Customer Support & Instant Order Bot
- * Ultra-Fast Low-Latency Edition (1-2s Instant Reply)
+ * Features:
+ *  1. Voice Message (Audio Note) Listener with Gemini Multimodal Audio
+ *  2. Full Category Listing with direct buy links (e.g. all fans, all watches)
+ *  3. Budget-Aware Product Filtering (e.g. 1000 takar moddhe)
+ *  4. Ultra-Fast Instant Reply (1-2s response)
  * Website: https://techxzone.shop
  */
 
@@ -19,34 +23,33 @@ const {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  downloadMediaMessage,
   delay
 } = require('@whiskeysockets/baileys');
 
-// ================= ১. কনফিগারেশন ও এনভায়রনমেন্ট ভ্যালিডেশন =================
+// ================= ১. কনফিগারেশন =================
 const PORT = process.env.PORT || 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
-const GEMINI_FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || 'gemini-3.5-flash,gemini-2.5-flash')
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GEMINI_FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || 'gemini-3.5-flash,gemini-3.6-flash')
   .split(',')
   .map(m => m.trim())
   .filter(Boolean);
-const AI_TIMEOUT_MS = parseInt(process.env.AI_TIMEOUT_MS, 10) || 5000;
+const AI_TIMEOUT_MS = parseInt(process.env.AI_TIMEOUT_MS, 10) || 7000;
 const ADMIN_PHONE = (process.env.ADMIN_PHONE || '8801404277094').replace(/[^0-9]/g, '');
 const DASHBOARD_TOKEN = process.env.DASHBOARD_TOKEN || 'TechXZoneSecretDashboardAuthKey2026';
 const SITE_BASE_URL = (process.env.SITE_BASE_URL || 'https://techxzone.shop').replace(/\/+$/, '');
 const CATALOG_REFRESH_MS = parseInt(process.env.CATALOG_REFRESH_MS, 10) || 900000;
-const SESSION_BACKUP_INTERVAL_MS = parseInt(process.env.SESSION_BACKUP_INTERVAL_MS, 10) || 300000;
 
 const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
 if (!fs.existsSync(AUTH_DIR)) {
   fs.mkdirSync(AUTH_DIR, { recursive: true });
 }
 
-// জেমিনাই ক্লায়েন্ট ইনিট
 let aiClient = null;
 if (GEMINI_API_KEY) {
   aiClient = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-  console.log('✅ Google Gemini Fast-Engine Ready with:', GEMINI_MODEL);
+  console.log('✅ Google Gemini Multimodal Voice & Text Ready with:', GEMINI_MODEL);
 }
 
 // ================= ২. গ্লোবাল স্টেট =================
@@ -56,9 +59,8 @@ const globalState = {
   qrCodeDataUrl: null,
   pairingCode: null,
   pairingPhone: null,
-  lastDisconnectReason: null,
-  catalogLastUpdated: null,
   catalogCount: 0,
+  catalogLastUpdated: null,
   activeAiModel: GEMINI_MODEL,
   recentLogs: []
 };
@@ -70,7 +72,7 @@ function addLog(level, message) {
   console.log(`[${time}] [${level.toUpperCase()}]: ${message}`);
 }
 
-// ================= ৩. ক্যাটালগ ক্যাশিং =================
+// ================= ৩. ক্যাটালগ ক্যাশিং ও স্মার্ট সার্চ ইঞ্জিন =================
 let cachedCatalog = [];
 async function refreshProductCatalog() {
   try {
@@ -90,45 +92,108 @@ async function refreshProductCatalog() {
       addLog('info', `Catalog synced: ${cachedCatalog.length} items`);
     }
   } catch (err) {
-    addLog('warn', `Catalog sync error: ${err.message}`);
+    addLog('warn', `Catalog error: ${err.message}`);
   }
 }
 setInterval(refreshProductCatalog, CATALOG_REFRESH_MS);
 
-function searchRelevantProducts(query, maxResults = 3) {
-  if (!query || cachedCatalog.length === 0) return cachedCatalog.slice(0, 2);
-  const q = query.toLowerCase();
-  const tokens = q.split(/\s+/).filter(t => t.length > 1);
+// বাজেট পার্সিং হেল্পার (যেমন: ১০০০ টাকার মধ্যে / budget 1500 / 500-1000)
+function parseBudgetFromText(text) {
+  // বাংলা সংখ্যাকে ইংরেজিতে রূপান্তর
+  const bnDigits = {'০':'0','১':'1','২':'2','৩':'3','৪':'4','৫':'5','৬':'6','৭':'7','৮':'8','৯':'9'};
+  const normalized = text.replace(/[০-৯]/g, d => bnDigits[d]);
 
+  // রেঞ্জ চেক: ৫০০ থেকে ১০০০
+  const rangeMatch = normalized.match(/(\d+)\s*(?:থেকে|to|-)\s*(\d+)/i);
+  if (rangeMatch) {
+    return { min: parseInt(rangeMatch[1], 10), max: parseInt(rangeMatch[2], 10) };
+  }
+
+  // সর্বোচ্চ বাজেট: 1000 টাকার মধ্যে / budget 1500 / 2000 er moddhe
+  const maxMatch = normalized.match(/(?:বাজেট|budget|টাকার মধ্যে|টাকার নিচে|টাকার ভেতর|er moddhe|er niche|under|moddhe)\s*:?\s*(\d+)/i) ||
+                   normalized.match(/(\d+)\s*(?:টাকা|টাকার|tk)?\s*(?:এর মধ্যে|এর নিচে|এর ভেতর|er moddhe|moddhe)/i);
+  if (maxMatch) {
+    return { min: 0, max: parseInt(maxMatch[1], 10) };
+  }
+  return null;
+}
+
+// স্মার্ট ফিল্টারিং: নির্দিষ্ট ক্যাটাগরির সব পণ্য অথবা বাজেটের সব পণ্য
+function searchSmartProducts(query) {
+  if (cachedCatalog.length === 0) return [];
+  const q = query.toLowerCase().trim();
+  const budget = parseBudgetFromText(q);
+
+  // ১. বাজেট ভিত্তিক ফিল্টার
+  if (budget) {
+    const budgetItems = cachedCatalog.filter(p => {
+      if (budget.min > 0 && p.price < budget.min) return false;
+      return p.price <= budget.max;
+    });
+    // বাজেটের কাছাকাছি পণ্য আগে দেখাবে
+    budgetItems.sort((a, b) => b.price - a.price);
+    return { type: 'budget', budget, items: budgetItems.slice(0, 10) };
+  }
+
+  // ২. ক্যাটাগরি বা পণ্যের নাম ভিত্তিক ফিল্টার (যেমন: ফ্যান, ঘড়ি, হেডফোন)
+  const categoryKeywords = {
+    fan: ['fan', 'ফ্যান', 'বাতাস', 'টেবিল ফ্যান', 'হাত ফ্যান'],
+    watch: ['watch', 'ঘড়ি', 'ঘড়ি', 'স্মার্টওয়াচ', 'smartwatch', 'smart watch', 't900', 'ultra'],
+    headphone: ['headphone', 'headset', 'earphone', 'airpod', 'earbuds', 'হেডফোন', 'ইয়ারফোন', 'টিডব্লিউএস'],
+    light: ['light', 'লাইট', 'ল্যাম্প', 'bulb', 'বাতি'],
+    speaker: ['speaker', 'স্পিকার', 'সাউন্ড']
+  };
+
+  let matchedCategory = null;
+  for (const [catKey, aliases] of Object.entries(categoryKeywords)) {
+    if (aliases.some(alias => q.includes(alias))) {
+      matchedCategory = catKey;
+      break;
+    }
+  }
+
+  if (matchedCategory) {
+    const aliases = categoryKeywords[matchedCategory];
+    const catItems = cachedCatalog.filter(p => {
+      const name = p.name.toLowerCase();
+      const cat = p.category.toLowerCase();
+      const desc = p.description.toLowerCase();
+      return aliases.some(a => name.includes(a) || cat.includes(a) || desc.includes(a));
+    });
+    if (catItems.length > 0) {
+      return { type: 'category', keyword: matchedCategory, items: catItems };
+    }
+  }
+
+  // ৩. সাধারণ কিওয়ার্ড সার্চ
+  const tokens = q.split(/\s+/).filter(t => t.length > 1);
   const scored = cachedCatalog.map(p => {
     let score = 0;
     const nameLower = p.name.toLowerCase();
     if (nameLower === q) score += 100;
     if (nameLower.includes(q)) score += 50;
-    tokens.forEach(tok => {
-      if (nameLower.includes(tok)) score += 20;
-    });
+    tokens.forEach(tok => { if (nameLower.includes(tok)) score += 20; });
     return { product: p, score };
   });
 
   scored.sort((a, b) => b.score - a.score);
-  const top = scored.filter(s => s.score > 0).slice(0, maxResults).map(s => s.product);
-  return top.length > 0 ? top : cachedCatalog.slice(0, 2);
+  const top = scored.filter(s => s.score > 0).slice(0, 4).map(s => s.product);
+  return { type: 'general', items: top.length > 0 ? top : cachedCatalog.slice(0, 2) };
 }
 
-// ================= ৪. সেশন ব্যাকআপ/রিস্টোর =================
+// ================= ৪. সেশন ক্লাউড ব্যাকআপ/রিস্টোর =================
 async function restoreSessionFromRemote() {
   try {
-    const res = await axios.get(`${SITE_BASE_URL}/api.php?action=get_settings&key=wa_full_session_bundle`, { timeout: 10000 });
+    const res = await axios.get(`${SITE_BASE_URL}/api.php?action=get_settings&key=wa_full_session_bundle`, { timeout: 8000 });
     let bundle = res.data;
     if (typeof bundle === 'string') {
       try { bundle = JSON.parse(bundle); } catch (_) {}
     }
     if (bundle?.files && Object.keys(bundle.files).length > 0) {
-      for (const [filename, base64Content] of Object.entries(bundle.files)) {
-        const safeName = path.basename(filename);
-        if (!safeName.includes('..')) {
-          fs.writeFileSync(path.join(AUTH_DIR, safeName), Buffer.from(base64Content, 'base64'));
+      for (const [f, b64] of Object.entries(bundle.files)) {
+        const safe = path.basename(f);
+        if (!safe.includes('..')) {
+          fs.writeFileSync(path.join(AUTH_DIR, safe), Buffer.from(b64, 'base64'));
         }
       }
       addLog('info', 'Remote session restored.');
@@ -149,188 +214,146 @@ async function backupSessionToRemote() {
     await axios.post(`${SITE_BASE_URL}/api.php?action=save_settings`, {
       key: 'wa_full_session_bundle',
       value: bundle
-    }, { timeout: 12000 });
+    }, { timeout: 10000 });
   } catch (_) {}
 }
-setInterval(backupSessionToRemote, SESSION_BACKUP_INTERVAL_MS);
+setInterval(backupSessionToRemote, 300000);
 
-// ================= ৫. গ্রাহক চ্যাট সেশন =================
-const userSessions = new Map();
-function getUserSession(phone) {
-  const now = Date.now();
-  if (!userSessions.has(phone)) {
-    userSessions.set(phone, {
-      history: [],
-      orderState: { step: 'IDLE', product: null, qty: 1, name: '', address: '', total: 0, courier: 70 },
-      lastActive: now
+// ================= ৫. গ্রাহকের ভয়েস মেসেজ শোনা (Gemini Audio) =================
+async function transcribeAudioWithGemini(audioBuffer, mimeType = 'audio/ogg') {
+  if (!aiClient) return '';
+  try {
+    addLog('info', 'Listening to voice message via Gemini Multimodal Audio...');
+    const audioPart = {
+      inlineData: {
+        data: audioBuffer.toString('base64'),
+        mimeType: mimeType.split(';')[0]
+      }
+    };
+    const prompt = 'এই ভয়েস মেসেজে গ্রাহক কী বলেছেন তা হুবহু বাংলায় বা ইংরেজিতে শুধু টেক্সট আকারে লিখুন। অতিরিক্ত কোনো ব্যাখ্যা বা কথা লিখবেন না।';
+
+    const response = await aiClient.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: [audioPart, prompt],
+      config: {
+        temperature: 0.1,
+        maxOutputTokens: 200,
+        thinkingConfig: { thinkingBudget: 0 }
+      }
     });
+
+    const text = response.text?.trim() || '';
+    addLog('info', `Voice Transcribed: "${text}"`);
+    return text;
+  } catch (err) {
+    addLog('error', `Voice processing error: ${err.message}`);
+    return '';
   }
-  const session = userSessions.get(phone);
-  session.lastActive = now;
-  return session;
 }
 
-// ================= ৬. বিদ্যুৎগতির জেমিনাই ইঞ্জিন (Thinking Budget = 0) =================
+// ================= ৬. ফাস্ট টেক্সট জেনারেটর =================
 async function callGeminiUltraFast(prompt, systemInstruction) {
-  if (!aiClient) throw new Error('AI not configured');
-  const modelsToTry = [GEMINI_MODEL, ...GEMINI_FALLBACK_MODELS];
+  if (!aiClient) throw new Error('GEMINI_API_KEY Missing');
+  const models = [GEMINI_MODEL, ...GEMINI_FALLBACK_MODELS];
 
-  for (const modelId of modelsToTry) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
-
+  for (const modelId of models) {
     try {
       const start = Date.now();
-      // ⚡ থিংকিং মোড পুরোপুরি বন্ধ এবং শর্ট আউটপুট: ১-২ সেকেন্ডে রেসপন্স
       const response = await aiClient.models.generateContent({
         model: modelId,
         contents: prompt,
         config: {
           systemInstruction: systemInstruction,
           temperature: 0.2,
-          maxOutputTokens: 200,
-          thinkingConfig: {
-            thinkingBudget: 0 // 🚀 কোনো ব্যাকগ্রাউন্ড লেটেন্সি নেই
-          }
+          maxOutputTokens: 220,
+          thinkingConfig: { thinkingBudget: 0 }
         }
       });
-      clearTimeout(timeout);
       const text = response.text?.trim();
       if (text) {
-        addLog('info', `Speed: ${Date.now() - start}ms [${modelId}]`);
+        addLog('info', `AI Replied in ${Date.now() - start}ms [${modelId}]`);
         return text;
       }
-    } catch (err) {
-      clearTimeout(timeout);
-      // যদি thinkingBudget প্যারামিটারটি কোনো মডেল সাপোর্ট না করে তবে সাধারণ কল
-      try {
-        const fallbackRes = await aiClient.models.generateContent({
-          model: modelId,
-          contents: prompt,
-          config: {
-            systemInstruction: systemInstruction,
-            temperature: 0.2,
-            maxOutputTokens: 180
-          }
-        });
-        const text = fallbackRes.text?.trim();
-        if (text) return text;
-      } catch (_) {}
-    }
+    } catch (_) {}
   }
-  throw new Error('All fast models timed out');
+  throw new Error('AI Generation Failed');
 }
 
-// ================= ৭. অর্ডার বুকিং =================
-async function executeOrderCreation(orderPayload) {
-  try {
-    const res = await axios.post(`${SITE_BASE_URL}/api.php?action=create_order`, orderPayload, { timeout: 10000 });
-    return {
-      success: res.data?.status === 'success',
-      orderId: res.data?.orderId || orderPayload.orderId
-    };
-  } catch (err) {
-    return { success: false, message: err.message };
-  }
-}
-
-// ================= ৮. মেসেজ প্রসেসিং =================
+// ================= ৭. গ্রাহক মেসেজ ও প্রোডাক্ট ফরম্যাটিং পাইপলাইন =================
 async function handleCustomerIncomingMessage(phone, text) {
-  const session = getUserSession(phone);
   const cleanInput = text.trim();
-  const lowerInput = cleanInput.toLowerCase();
+  const searchResult = searchSmartProducts(cleanInput);
 
-  // ১. অর্ডার কনফার্মেশন চেক
-  if (session.orderState.step === 'AWAITING_CONFIRMATION') {
-    if (/^(হ্যাঁ|হ্যা|হাঁ|yes|confirm|কনফার্ম|ok|ঠিক আছে|হুম|পাঠিয়ে দিন)$/i.test(lowerInput)) {
-      const state = session.orderState;
-      const orderId = 'TXZ-' + Math.floor(100000 + Math.random() * 900000);
-      const orderPayload = {
-        orderId,
-        customerName: state.name,
-        phone: phone,
-        division: state.address.includes('ঢাকা') ? 'ঢাকা' : 'অন্যান্য',
-        district: 'ঢাকা',
-        address: state.address,
-        items: [{ id: state.product.id, name: state.product.name, price: state.product.price, qty: state.qty }],
-        subtotal: state.product.price * state.qty,
-        courierFee: state.courier,
-        codDue: state.total,
-        grandTotal: state.total,
-        paymentMethod: 'Cash on Delivery',
-        status: 'Pending'
-      };
-
-      const result = await executeOrderCreation(orderPayload);
-      session.orderState = { step: 'IDLE', product: null, qty: 1, name: '', address: '', total: 0, courier: 70 };
-
-      if (result.success) {
-        // অ্যাডমিনকে নোটিফিকেশন
-        if (sock) {
-          sock.sendMessage(`${ADMIN_PHONE}@s.whatsapp.net`, {
-            text: `🚨 *নতুন অর্ডার:* #${orderId}\n👤 ${state.name} (${phone})\n📦 ${state.product.name} (৳${state.total})\n📍 ${state.address}`
-          }).catch(() => {});
-        }
-        return `🎉 *ধন্যবাদ ভাইয়া! আপনার অর্ডারটি নিশ্চিত হয়েছে।*\n\n🆔 *অর্ডার আইডি:* #${orderId}\n📦 *পণ্য:* ${state.product.name}\n💰 *বিল:* ৳${state.total} (ক্যাশ অন ডেলিভারি)\n📍 *ঠিকানা:* ${state.address}\n\nখুব শীঘ্রই পার্সেলটি পাঠিয়ে দেওয়া হবে ❤️`;
-      }
-    } else if (/^(না|no|বাতিল|cancel)$/i.test(lowerInput)) {
-      session.orderState = { step: 'IDLE', product: null, qty: 1, name: '', address: '', total: 0, courier: 70 };
-      return `অর্ডারটি বাতিল করা হয়েছে ভাইয়া। অন্য কিছু দেখতে চাইলে জানান 😊`;
-    }
+  // ১. যদি নির্দিষ্ট ক্যাটাগরির সব পণ্য চাওয়া হয় (যেমন: ফ্যান কয়টা আছে)
+  if (searchResult.type === 'category' && searchResult.items.length > 0) {
+    let listStr = `✨ *আমাদের শপের সকল গ্যাজেট কালেকশন:*\n\n`;
+    searchResult.items.forEach((p, idx) => {
+      const stockBadge = p.in_stock ? '✅ স্টকে আছে' : '❌ স্টক শেষ';
+      listStr += `${idx + 1}️⃣ *${p.name}*\n` +
+                 `💵 মূল্য: ৳${p.price}\n` +
+                 `📦 স্টক: ${stockBadge}\n` +
+                 `🔗 অর্ডার লিংক: ${p.buy_link}\n\n`;
+    });
+    listStr += `🚚 *ডেলিভারি চার্জ:* ঢাকার ভিতরে ৳৭০, ঢাকার বাইরে ৳১৩০ (ক্যাশ অন ডেলিভারি)।\n` +
+               `👉 ভাইয়া, আপনার যে পণ্যটি পছন্দ হয়েছে তার নাম এবং আপনার ঠিকানা লিখে দিলে আমরা পার্সেল পাঠিয়ে দেব ❤️`;
+    return listStr;
   }
 
-  // প্রাসঙ্গিক ২-৩টি পণ্য
-  const relevant = searchRelevantProducts(cleanInput, 2);
-  const catalogContext = relevant.map(p => `[ID:${p.id}] ${p.name} - ৳${p.price} (${p.in_stock ? 'স্টকে আছে' : 'স্টক শেষ'})`).join('\n');
+  // ২. যদি নির্দিষ্ট বাজেটের পণ্য চাওয়া হয় (যেমন: ১০০০ টাকার মধ্যে কি আছে)
+  if (searchResult.type === 'budget') {
+    if (searchResult.items.length === 0) {
+      return `ভাইয়া, ৳${searchResult.budget.max} বাজেটের মধ্যে এই মুহূর্তে কোনো পণ্য স্টকে নেই। আমাদের সর্বনিম্ন পণ্য দেখতে আমাদের ওয়েবসাইট ভিজিট করতে পারেন: ${SITE_BASE_URL}`;
+    }
+    let listStr = `💰 *আপনার ৳${searchResult.budget.max} বাজেটের সেরা গ্যাজেটসমূহ:*\n\n`;
+    searchResult.items.forEach((p, idx) => {
+      listStr += `${idx + 1}️⃣ *${p.name}* — ৳${p.price}\n` +
+                 `🔗 দেখুন: ${p.buy_link}\n\n`;
+    });
+    listStr += `🚚 সারা বাংলাদেশে ক্যাশ অন ডেলিভারি সুবিধা রয়েছে। যে গ্যাজেটটি নিতে চান তার নাম ও আপনার ডেলিভারি ঠিকানা পাঠিয়ে দিন ভাইয়া 😊`;
+    return listStr;
+  }
 
-  const systemPrompt = `TechXZone (https://techxzone.shop) এর বিনয়ী বাংলা সেলস অ্যাসিস্ট্যান্ট।
+  // ৩. সাধারণ কথোপকথন ও অর্ডার
+  const catalogContext = searchResult.items.map(p => `[ID:${p.id}] ${p.name} - ৳${p.price} (${p.in_stock ? 'স্টকে আছে' : 'স্টক শেষ'}) - ${p.buy_link}`).join('\n');
+
+  const systemPrompt = `TechXZone (https://techxzone.shop) এর বাংলা সেলস অ্যাসিস্ট্যান্ট।
 নিয়ম:
 ১. গ্রাহককে সবসময় "ভাইয়া" বলে সম্বোধন করবেন।
-২. ১-২ লাইনে খুব দ্রুত ও সংক্ষেপে পয়েন্টে উত্তর দিন। দীর্ঘ কথা বলবেন না।
+২. সংক্ষেপে ১-২ লাইনে মিষ্টি ও ভদ্রভাবে পয়েন্টে উত্তর দিন।
 ৩. শুধু এই পণ্য তালিকা ব্যবহার করুন:
 ${catalogContext}
-৪. ডেলিভারি চার্জ: ঢাকা ৳৭০, ঢাকার বাইরে ৳১৩০। সারা দেশে ক্যাশ অন ডেলিভারি।
-৫. অর্ডার করতে চাইলে বলুন নাম ও ঠিকানা লিখে দিতে।`;
+৪. ডেলিভারি চার্জ: ঢাকা ৳৭০, ঢাকার বাইরে ৳১৩০। ক্যাশ অন ডেলিভারি।
+৫. পণ্য পছন্দ হলে নাম ও সম্পূর্ণ ঠিকানা লিখে দিতে বলুন।`;
 
   try {
     const reply = await callGeminiUltraFast(`গ্রাহক: "${cleanInput}"`, systemPrompt);
     const formatted = reply.replace(/\*\*(.*?)\*\*/g, '*$1*');
 
-    // যদি ঠিকানা পাঠিয়ে থাকে
+    // ঠিকানা পাঠালে তাৎক্ষণিক অর্ডার সামারি
     if (cleanInput.length > 15 && (cleanInput.includes('ঠিকানা') || cleanInput.includes('নাম') || /01[3-9]\d{8}/.test(cleanInput))) {
-      const topP = relevant[0];
+      const topP = searchResult.items[0];
       if (topP) {
         const isOutside = !cleanInput.includes('ঢাকা');
         const courier = isOutside ? 130 : 70;
         const total = topP.price + courier;
-        session.orderState = {
-          step: 'AWAITING_CONFIRMATION',
-          product: topP,
-          qty: 1,
-          name: cleanInput.split('\n')[0].replace(/(নাম|name|:)/gi, '').trim() || 'সম্মানিত গ্রাহক',
-          address: cleanInput,
-          courier,
-          total
-        };
-        return `${formatted}\n\n📋 *অর্ডার সারসংক্ষেপ:*\n• পণ্য: *${topP.name}*\n• সর্বমোট বিল: *৳${total}* (${isOutside ? 'ঢাকার বাইরে ৳১৩০' : 'ঢাকার ভিতরে ৳৭০'})\n\nভাইয়া, পার্সেলটি কি পাঠিয়ে দেব? কনফার্ম করতে *'হ্যাঁ'* লিখে জানান।`;
+        return `${formatted}\n\n📋 *অর্ডার সারসংক্ষেপ:*\n• পণ্য: *${topP.name}*\n• সর্বমোট বিল: *৳${total}* (${isOutside ? 'ঢাকার বাইরে ৳১৩০' : 'ঢাকার ভিতরে ৳৭০'})\n\nভাইয়া, পার্সেলটি কি কনফার্ম করে পাঠিয়ে দেব? নিশ্চিত করতে *'হ্যাঁ'* লিখে জানান।`;
       }
     }
     return formatted;
   } catch (err) {
-    const topP = relevant[0];
+    const topP = searchResult.items[0];
     if (topP) {
-      return `হ্যালো ভাইয়া! আমাদের শপের *${topP.name}* এর বর্তমান মূল্য ৳${topP.price}। ${topP.in_stock ? 'পণ্যটি স্টকে আছে।' : ''}\n\nডেলিভারি চার্জ: ঢাকার ভিতরে ৳৭০, বাইরে ৳১৩০ (ক্যাশ অন ডেলিভারি)। অর্ডার করতে আপনার নাম ও সম্পূর্ণ ঠিকানা লিখে দিন ভাইয়া।`;
+      return `হ্যালো ভাইয়া! আমাদের শপের *${topP.name}* বর্তমানে ৳${topP.price}। ${topP.in_stock ? 'স্টকে আছে।' : ''}\n🔗 লিংক: ${topP.buy_link}\n\nডেলিভারি চার্জ: ঢাকার ভিতরে ৳৭০, বাইরে ৳১৩০ (ক্যাশ অন ডেলিভারি)। অর্ডার করতে আপনার নাম ও সম্পূর্ণ ঠিকানা লিখে দিন ভাইয়া।`;
     }
-    return `হ্যালো ভাইয়া! TechXZone-এ স্বাগতম। আপনি কোন গ্যাজেটটি সম্পর্কে জানতে চাচ্ছেন নাম লিখে জানান, আমি এখনই দাম জানিয়ে দিচ্ছি।`;
+    return `হ্যালো ভাইয়া! TechXZone-এ স্বাগতম। আপনি কোন গ্যাজেটটি সম্পর্কে জানতে চাচ্ছেন নাম বা বাজেট লিখে জানান, আমি এখনই প্রোডাক্টের লিংক ও দাম পাঠিয়ে দিচ্ছি।`;
   }
 }
 
-// ================= ৯. হোয়াটসঅ্যাপ কানেকশন =================
+// ================= ৮. হোয়াটসঅ্যাপ ইঞ্জিন (ভয়েস + টেক্সট হ্যান্ডলার) =================
 let sock = null;
-const processedMessageIds = new Set();
 
 async function startWhatsAppBot() {
-  if (globalState.waConnecting) return;
+  if (globalState.waConnecting || globalState.waConnected) return;
   globalState.waConnecting = true;
 
   try {
@@ -346,7 +369,7 @@ async function startWhatsAppBot() {
       logger: pino({ level: 'silent' }),
       printQRInTerminal: false,
       auth: state,
-      browser: ['TechXZone Bot', 'Chrome', '128.0.0.0'],
+      browser: ['Ubuntu', 'Chrome', '20.0.04'],
       syncFullHistory: false
     });
 
@@ -363,6 +386,7 @@ async function startWhatsAppBot() {
         globalState.waConnected = false;
         globalState.waConnecting = false;
         const code = lastDisconnect?.error?.output?.statusCode;
+        addLog('warn', `WhatsApp Closed. Code: ${code}`);
         if (code !== DisconnectReason.loggedOut) {
           setTimeout(startWhatsAppBot, 4000);
         }
@@ -371,38 +395,60 @@ async function startWhatsAppBot() {
         globalState.waConnecting = false;
         globalState.qrCodeDataUrl = null;
         globalState.pairingCode = null;
-        addLog('info', 'WhatsApp Connected & Ready!');
-        await refreshProductCatalog();
+        addLog('info', '✅ WhatsApp Connected Successfully!');
       }
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
-
       for (const m of messages) {
         if (!m.message || m.key.fromMe) continue;
-        const msgId = m.key.id;
-        if (processedMessageIds.has(msgId)) continue;
-        processedMessageIds.add(msgId);
-        if (processedMessageIds.size > 1000) processedMessageIds.delete(processedMessageIds.values().next().value);
-
         const from = m.key.remoteJid;
         if (!from || from.endsWith('@g.us')) continue;
 
-        const incomingText = (m.message.conversation || m.message.extendedTextMessage?.text || '').trim();
-        if (!incomingText) continue;
-
         const customerPhone = from.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
 
-        // রিড রিসিপ্ট
+        // রিড রিসিপ্ট ও টাইপিং
         sock.readMessages([m.key]).catch(() => {});
         sock.sendPresenceUpdate('composing', from).catch(() => {});
 
         try {
-          const replyText = await handleCustomerIncomingMessage(customerPhone, incomingText);
-          await sock.sendMessage(from, { text: replyText });
-        } catch (_) {
-          await sock.sendMessage(from, { text: 'ভাইয়া, সাময়িক নেটওয়ার্ক ত্রুটির কারণে রিপ্লাই যেতে দেরি হয়েছে। দয়া করে আরেকবার লিখুন।' });
+          let customerText = '';
+
+          // 🎙️ ১. যদি গ্রাহক ভয়েস মেসেজ বা অডিও পাঠায়
+          if (m.message.audioMessage) {
+            addLog('info', `Voice message received from ${customerPhone}`);
+            const buffer = await downloadMediaMessage(
+              m,
+              'buffer',
+              {},
+              { logger: pino({ level: 'silent' }) }
+            );
+            const mime = m.message.audioMessage.mimetype || 'audio/ogg';
+            customerText = await transcribeAudioWithGemini(buffer, mime);
+          } else {
+            // ২. সাধারণ টেক্সট মেসেজ
+            customerText = (m.message.conversation || m.message.extendedTextMessage?.text || '').trim();
+          }
+
+          if (!customerText) {
+            if (m.message.audioMessage) {
+              await sock.sendMessage(from, { text: 'ভাইয়া, আপনার ভয়েস মেসেজটি পরিষ্কারভাবে বুঝতে পারিনি। দয়া করে আবার বলুন অথবা লিখে জানান ❤️' });
+            }
+            continue;
+          }
+
+          // এআই প্রসেসিং ও উত্তর তৈরি
+          const replyText = await handleCustomerIncomingMessage(customerPhone, customerText);
+
+          // ভয়েসের ক্ষেত্রে সুন্দর প্রিপেন্ড মেসেজ
+          const finalReply = m.message.audioMessage 
+            ? `🎤 *আপনি বলেছেন:* "${customerText}"\n\n${replyText}`
+            : replyText;
+
+          await sock.sendMessage(from, { text: finalReply });
+        } catch (err) {
+          addLog('error', `Message handling error: ${err.message}`);
         } finally {
           sock.sendPresenceUpdate('paused', from).catch(() => {});
         }
@@ -414,11 +460,19 @@ async function startWhatsAppBot() {
   }
 }
 
-// ================= ১০. এক্সপ্রেস ও ড্যাশবোর্ড এপিআই =================
+// ================= ৯. এক্সপ্রেস অ্যাপ ও ড্যাশবোর্ড =================
 const app = express();
+app.set('trust proxy', 1);
+
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+const chatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 40,
+  validate: { xForwardedForHeader: false }
+});
 
 app.get('/health', (req, res) => res.json({ status: 'ok', wa: globalState.waConnected }));
 
@@ -431,6 +485,7 @@ app.get('/api/status', (req, res) => {
       hasQr: !!globalState.qrCodeDataUrl,
       qrCode: globalState.qrCodeDataUrl,
       pairingCode: globalState.pairingCode,
+      pairingPhone: globalState.pairingPhone,
       catalogCount: globalState.catalogCount,
       catalogLastUpdated: globalState.catalogLastUpdated,
       recentLogs: globalState.recentLogs.slice(0, 25)
@@ -439,40 +494,66 @@ app.get('/api/status', (req, res) => {
 });
 
 app.post('/get-code', async (req, res) => {
-  const phone = (req.body.phone || '').replace(/[^0-9]/g, '');
-  if (!phone || phone.length < 10) return res.status(400).json({ success: false, message: 'সঠিক নম্বর দিন' });
+  let phone = (req.body.phone || '').replace(/[^0-9]/g, '');
+  if (phone.startsWith('01') && phone.length === 11) phone = '88' + phone;
+  if (!phone || phone.length < 11) {
+    return res.status(400).json({ success: false, message: 'সঠিক আন্তর্জাতিক নম্বর দিন (যেমন: 88017...)' });
+  }
 
   try {
     if (!sock) { await startWhatsAppBot(); await delay(2000); }
     if (sock && !sock.authState.creds.registered) {
       const code = await sock.requestPairingCode(phone);
       globalState.pairingCode = code;
+      globalState.pairingPhone = phone;
+      addLog('info', `Pairing Code: ${code} for ${phone}`);
       return res.json({ success: true, pairingCode: code });
     }
-    return res.status(400).json({ success: false, message: 'ইতিমধ্যে রেজিস্টার্ড' });
+    return res.status(400).json({ success: false, message: 'ইতিমধ্যে ডিভাইস কানেক্টেড আছে।' });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
-app.post('/refresh-catalog', async (req, res) => {
-  await refreshProductCatalog();
-  res.json({ success: true, total: globalState.catalogCount });
-});
-
 app.post('/hard-reset', async (req, res) => {
-  if (sock) { try { sock.end(undefined); } catch (_) {} sock = null; }
-  if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
-  fs.mkdirSync(AUTH_DIR, { recursive: true });
-  setTimeout(startWhatsAppBot, 2000);
-  res.json({ success: true, message: 'সেশন রিসেট হয়েছে।' });
+  try {
+    if (sock) { try { sock.end(undefined); } catch (_) {} sock = null; }
+    globalState.waConnected = false;
+    globalState.waConnecting = false;
+    globalState.pairingCode = null;
+    globalState.qrCodeDataUrl = null;
+
+    if (fs.existsSync(AUTH_DIR)) {
+      fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+      fs.mkdirSync(AUTH_DIR, { recursive: true });
+    }
+    try {
+      await axios.post(`${SITE_BASE_URL}/api.php?action=save_settings`, {
+        key: 'wa_full_session_bundle',
+        value: {}
+      }, { timeout: 6000 });
+    } catch (_) {}
+
+    setTimeout(startWhatsAppBot, 2000);
+    res.json({ success: true, message: 'সেশন পরিষ্কার করা হয়েছে।' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
-app.post('/api/ai-chat', async (req, res) => {
+app.post('/api/ai-chat', chatLimiter, async (req, res) => {
   const message = req.body.message || '';
   if (!message) return res.status(400).json({ success: false });
-  const reply = await handleCustomerIncomingMessage('web_test', message);
-  res.json({ success: true, reply });
+
+  try {
+    const reply = await handleCustomerIncomingMessage('web_test', message);
+    return res.json({ success: true, reply });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      reply: 'ভাইয়া, যেকোনো পণ্যের নাম লিখে জানান, আমি এখনই স্টক ও দাম জানিয়ে দিচ্ছি।'
+    });
+  }
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
