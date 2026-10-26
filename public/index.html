@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TechXZone — WhatsApp AI Bot Master Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg-dark: #070D18;
+      --bg-card: #0E1A2D;
+      --bg-card-hover: #13233C;
+      --border-color: #1E3456;
+      --primary: #10B981;
+      --primary-hover: #059669;
+      --primary-glow: rgba(16, 185, 129, 0.25);
+      --danger: #EF4444;
+      --danger-hover: #DC2626;
+      --warning: #F59E0B;
+      --text-main: #F1F5F9;
+      --text-muted: #94A3B8;
+      --text-dim: #64748B;
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Hind Siliguri', sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.6;
+    }
+
+    /* Top Navigation Bar */
+    header {
+      background: rgba(14, 26, 45, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-color);
+      padding: 16px 24px;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, var(--primary), #047857);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      box-shadow: 0 0 15px var(--primary-glow);
+    }
+
+    .brand-title {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #fff;
+    }
+
+    .brand-subtitle {
+      font-size: 12px;
+      color: var(--primary);
+      font-weight: 500;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .token-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(30, 52, 86, 0.4);
+      border: 1px solid var(--border-color);
+      padding: 6px 14px;
+      border-radius: 30px;
+      font-size: 13px;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--text-dim);
+    }
+
+    .status-dot.online {
+      background: var(--primary);
+      box-shadow: 0 0 10px var(--primary);
+    }
+
+    .status-dot.connecting {
+      background: var(--warning);
+      box-shadow: 0 0 10px var(--warning);
+      animation: pulse 1.5s infinite;
+    }
+
+    .status-dot.offline {
+      background: var(--danger);
+      box-shadow: 0 0 10px var(--danger);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* Main Container */
+    main {
+      flex: 1;
+      max-width: 1280px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 24px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* KPI Metrics Cards */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      transition: all 0.25s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card:hover {
+      border-color: rgba(16, 185, 129, 0.4);
+      transform: translateY(-2px);
+    }
+
+    .metric-label {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+
+    .metric-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .metric-tag {
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--primary);
+      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Dual Grid Layout */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    @media (max-width: 900px) {
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .section-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    /* WhatsApp Pairing Box */
+    .pairing-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(11, 20, 36, 0.7);
+      border: 1px dashed var(--border-color);
+      border-radius: var(--radius-md);
+      min-height: 280px;
+      text-align: center;
+    }
+
+    .qr-container {
+      background: #fff;
+      padding: 12px;
+      border-radius: 14px;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      max-width: 200px;
+      max-height: 200px;
+    }
+
+    .qr-container img {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .pairing-code-display {
+      background: #070E1A;
+      border: 2px solid var(--primary);
+      color: var(--primary);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: 6px;
+      padding: 12px 24px;
+      border-radius: 12px;
+      margin: 14px 0;
+      user-select: all;
+      cursor: pointer;
+      box-shadow: 0 0 20px var(--primary-glow);
+    }
+
+    .input-group {
+      display: flex;
+      width: 100%;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    input[type="text"], input[type="password"] {
+      flex: 1;
+      background: #070E1A;
+      border: 1px solid var(--border-color);
+      color: #fff;
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input:focus {
+      border-color: var(--primary);
+    }
+
+    .btn {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      padding: 12px 20px;
+      border-radius: var(--radius-sm);
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      background: var(--primary-hover);
+      box-shadow: 0 4px 14px var(--primary-glow);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: rgba(30, 52, 86, 0.6);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+    }
+
+    .btn-secondary:hover {
+      background: var(--border-color);
+      box-shadow: none;
+    }
+
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid var(--danger);
+      color: var(--danger);
+    }
+
+    .btn-danger:hover {
+      background: var(--danger);
+      color: #fff;
+    }
+
+    /* Interactive AI Test Simulator */
+    .chat-simulator {
+      display: flex;
+      flex-direction: column;
+      height: 400px;
+    }
+
+    .chat-window {
+      flex: 1;
+      background: #070E1A;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .chat-bubble {
+      max-width: 82%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+
+    .chat-bubble.bot {
+      background: #11223A;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #E2E8F0;
+      align-self: flex-start;
+      border-bottom-left-radius: 2px;
+    }
+
+    .chat-bubble.user {
+      background: var(--primary);
+      color: #fff;
+      align-self: flex-end;
+      border-bottom-right-radius: 2px;
+    }
+
+    /* Live Log Console */
+    .log-console {
+      background: #040810;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      height: 220px;
+      overflow-y: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .log-row {
+      display: flex;
+      gap: 12px;
+      line-height: 1.4;
+    }
+
+    .log-time { color: var(--text-dim); }
+    .log-level-info { color: #38BDF8; font-weight: 600; }
+    .log-level-warn { color: var(--warning); font-weight: 600; }
+    .log-level-error { color: var(--danger); font-weight: 600; }
+    .log-msg { color: #CBD5E1; }
+
+    /* Toast Notification */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--primary);
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: var(--radius-sm);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+      display: none;
+      z-index: 100;
+      font-size: 14px;
+      animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+      from { transform: translateY(30px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    footer {
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 16px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-dim);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation Header -->
+  <header>
+    <div class="brand">
+      <div class="brand-logo">⚡</div>
+      <div>
+        <div class="brand-title">TechXZone</div>
+        <div class="brand-subtitle">WhatsApp AI Bot Master Console</div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div class="token-badge">
+        <span class="status-dot" id="headerDot"></span>
+        <span id="headerStatusText">চেক করা হচ্ছে...</span>
+      </div>
+      <button class="btn btn-secondary" onclick="openTokenModal()">🔑 টোকেন কনফিগার</button>
+    </div>
+  </header>
+
+  <!-- Main Content Dashboard -->
+  <main>
+
+    <!-- Top KPI Cards -->
+    <div class="metrics-grid">
+      <div class="card">
+        <div class="metric-label">WhatsApp স্ট্যাটাস</div>
+        <div class="metric-value">
+          <span class="status-dot" id="waDot"></span>
+          <span id="waStatusText">ডিসকানেক্টেড</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="metric-label">সক্রিয় Gemini AI মডেল</div>
+        <div class="metric-value">
+          <span class="metric-tag" id="aiModelText">gemini-3.6-flash</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="metric-label">ক্যাটালগ পণ্য সংখ্যা</div>
+        <div class="metric-value">
+          <span id="catalogCount">০</span> টি
+          <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px; margin-left: auto;" onclick="refreshCatalog()">🔄 সিঙ্ক</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="metric-label">সর্বশেষ ক্যাটালগ রিফ্রেশ</div>
+        <div class="metric-value" style="font-size: 18px;" id="lastCatalogSync">
+          অপেক্ষমাণ
+        </div>
+      </div>
+    </div>
+
+    <!-- Dual Layout: Pairing & Chat Simulator -->
+    <div class="dashboard-grid">
+
+      <!-- WhatsApp Pairing Section -->
+      <div class="card">
+        <div class="section-title">
+          <span>📲</span> WhatsApp ডিভাইস পেয়ারিং
+        </div>
+        
+        <div class="pairing-box" id="pairingBox">
+          <!-- Dynamic Content loaded via JS -->
+          <div id="pairingLoading">কানেকশন ডাটা লোড হচ্ছে...</div>
+        </div>
+
+        <div style="margin-top: 16px;">
+          <label style="font-size: 13px; color: var(--text-muted); margin-bottom: 6px; display: block;">৮-ডিজিটের পেয়ারিং কোড দিয়ে লগইন (নম্বর দিন):</label>
+          <div class="input-group">
+            <input type="text" id="phoneInput" placeholder="যেমন: 88017XXXXXXXX">
+            <button class="btn" id="btnRequestCode" onclick="requestPairingCode()">কোড আনুন</button>
+          </div>
+        </div>
+
+        <div style="margin-top: 16px; display: flex; gap: 10px;">
+          <button class="btn btn-secondary" onclick="resendPairingCode()">🔄 রি-সেন্ড কোড</button>
+          <button class="btn btn-danger" style="margin-left: auto;" onclick="confirmHardReset()">⚠️ সম্পূর্ণ সেশন রিসেট</button>
+        </div>
+      </div>
+
+      <!-- AI Test Simulator Section -->
+      <div class="card chat-simulator">
+        <div class="section-title">
+          <span>🤖</span> লাইভ এআই চ্যাট সিমুলেটর
+          <span style="font-size: 12px; font-weight: normal; color: var(--text-dim); margin-left: auto;">(সরাসরি টেস্ট করুন)</span>
+        </div>
+
+        <div class="chat-window" id="chatWindow">
+          <div class="chat-bubble bot">
+            হ্যালো ভাইয়া! TechXZone-এ স্বাগতম। আপনি যেকোনো গ্যাজেটের নাম লিখুন বা তথ্য জানতে প্রশ্ন করুন।
+          </div>
+        </div>
+
+        <div class="input-group">
+          <input type="text" id="chatInput" placeholder="আপনার মেসেজ লিখুন (যেমন: T900 Ultra ঘড়ির দাম কত?)..." onkeypress="if(event.key==='Enter') sendTestChat()">
+          <button class="btn" id="btnSendChat" onclick="sendTestChat()">পাঠান</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- System Diagnostic Logs -->
+    <div class="card">
+      <div class="section-title" style="justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span>📟</span> রিয়েল-টাইম কনসোল লগ ও ডায়াগনস্টিকস
+        </div>
+        <button class="btn btn-secondary" style="padding: 4px 12px; font-size: 12px;" onclick="fetchStatus()">রিফ্রেশ</button>
+      </div>
+
+      <div class="log-console" id="logConsole">
+        <div class="log-row">
+          <span class="log-time">[00:00:00]</span>
+          <span class="log-level-info">INFO</span>
+          <span class="log-msg">ড্যাশবোর্ড ইনিশিয়ালাইজেশন সম্পন্ন...</span>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    &copy; 2026 TechXZone. All Rights Reserved. Powered by Google Gemini & WhatsApp Baileys Engine.
+  </footer>
+
+  <!-- Toast Notification Box -->
+  <div id="toast">বিজ্ঞপ্তি</div>
+
+  <!-- JavaScript Client Logic -->
+  <script>
+    // ড্যাশবোর্ড সিক্রেট টোকেন ম্যানেজমেন্ট
+    let authToken = localStorage.getItem('txz_dash_token') || '';
+
+    // ইউআরএল থেকে স্বয়ংক্রিয় টোকেন সংগ্রহ
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('token')) {
+      authToken = urlParams.get('token');
+      localStorage.setItem('txz_dash_token', authToken);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    function showToast(msg, isError = false) {
+      const toast = document.getElementById('toast');
+      toast.innerText = msg;
+      toast.style.borderColor = isError ? 'var(--danger)' : 'var(--primary)';
+      toast.style.display = 'block';
+      setTimeout(() => { toast.style.display = 'none'; }, 4000);
+    }
+
+    function openTokenModal() {
+      const current = localStorage.getItem('txz_dash_token') || '';
+      const entered = prompt('অ্যাডমিন ড্যাশবোর্ড সিকিউরিটি টোকেন (DASHBOARD_TOKEN) লিখুন:', current);
+      if (entered !== null) {
+        localStorage.setItem('txz_dash_token', entered.trim());
+        authToken = entered.trim();
+        showToast('টোকেন সফলভাবে সেভ করা হয়েছে!');
+        fetchStatus();
+      }
+    }
+
+    // অথ হেডার প্রস্তুতকারক
+    function getHeaders() {
+      const headers = { 'Content-Type': 'application/json' };
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+      return headers;
+    }
+
+    // ব্যাকএন্ড স্ট্যাটাস ফেচ ও UI আপডেট
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        if (!data.success) return;
+
+        const info = data.data;
+
+        // WhatsApp স্ট্যাটাস ব্যাজ আপডেট
+        const waDot = document.getElementById('waDot');
+        const headerDot = document.getElementById('headerDot');
+        const waText = document.getElementById('waStatusText');
+        const headerText = document.getElementById('headerStatusText');
+
+        if (info.waConnected) {
+          waDot.className = 'status-dot online';
+          headerDot.className = 'status-dot online';
+          waText.innerText = 'কানেক্টেড (Online)';
+          headerText.innerText = 'বট অনলাইন';
+        } else if (info.waConnecting) {
+          waDot.className = 'status-dot connecting';
+          headerDot.className = 'status-dot connecting';
+          waText.innerText = 'কানেক্টিং...';
+          headerText.innerText = 'কানেক্টিং...';
+        } else {
+          waDot.className = 'status-dot offline';
+          headerDot.className = 'status-dot offline';
+          waText.innerText = 'ডিসকানেক্টেড';
+          headerText.innerText = 'অফলাইন';
+        }
+
+        // মডেল এবং ক্যাটালগ
+        document.getElementById('aiModelText').innerText = info.activeAiModel || 'gemini-3.6-flash';
+        document.getElementById('catalogCount').innerText = info.catalogCount || '০';
+        document.getElementById('lastCatalogSync').innerText = info.catalogLastUpdated || 'হালনাগাদ করা হয়নি';
+
+        // পেয়ারিং বক্স রেন্ডারিং
+        renderPairingBox(info);
+
+        // লগ রেন্ডারিং
+        renderLogs(info.recentLogs || []);
+
+      } catch (err) {
+        console.error('Failed to sync status:', err);
+      }
+    }
+
+    function renderPairingBox(info) {
+      const box = document.getElementById('pairingBox');
+
+      if (info.waConnected) {
+        box.innerHTML = `
+          <div style="font-size: 48px; margin-bottom: 8px;">✅</div>
+          <h3 style="color: var(--primary); margin-bottom: 6px;">WhatsApp সফলভাবে কানেক্টেড!</h3>
+          <p style="color: var(--text-muted); font-size: 14px;">বট সম্পূর্ণ সচল রয়েছে এবং গ্রাহকদের অটো রিপ্লাই দিচ্ছে।</p>
+        `;
+      } else if (info.pairingCode) {
+        box.innerHTML = `
+          <div style="font-size: 14px; color: var(--text-muted);">হোয়াটসঅ্যাপের <b>Linked Devices > Link with phone number instead</b> অপশনে এই কোডটি লিখুন:</div>
+          <div class="pairing-code-display" onclick="navigator.clipboard.writeText('${info.pairingCode}'); showToast('কোড কপি করা হয়েছে!');" title="ক্লিক করে কপি করুন">
+            ${info.pairingCode}
+          </div>
+          <p style="font-size: 13px; color: var(--text-dim);">নম্বর: <b>${info.pairingPhone || ''}</b> (ক্লিক করে কপি করুন)</p>
+        `;
+      } else if (info.hasQr && info.qrCode) {
+        box.innerHTML = `
+          <div class="qr-container">
+            <img src="${info.qrCode}" alt="WhatsApp QR Code">
+          </div>
+          <p style="font-size: 14px; color: var(--text-muted);">আপনার WhatsApp থেকে <b>Linked Devices > Link a Device</b> দিয়ে QR স্ক্যান করুন।</p>
+        `;
+      } else {
+        box.innerHTML = `
+          <div style="font-size: 36px; margin-bottom: 8px;">📲</div>
+          <h4 style="margin-bottom: 6px;">পেয়ারিং অপেক্ষমাণ</h4>
+          <p style="font-size: 13px; color: var(--text-muted); max-width: 320px;">নিচের বক্সে আপনার হোয়াটসঅ্যাপ নম্বর লিখে <b>'কোড আনুন'</b> বাটনে ক্লিক করুন অথবা কিউআর কোডের জন্য অপেক্ষা করুন।</p>
+        `;
+      }
+    }
+
+    function renderLogs(logs) {
+      const consoleBox = document.getElementById('logConsole');
+      if (!logs || logs.length === 0) return;
+
+      consoleBox.innerHTML = logs.map(l => {
+        let levelClass = 'log-level-info';
+        if (l.level === 'warn') levelClass = 'log-level-warn';
+        if (l.level === 'error') levelClass = 'log-level-error';
+        return `
+          <div class="log-row">
+            <span class="log-time">[${l.time.substring(11, 19)}]</span>
+            <span class="${levelClass}">${l.level.toUpperCase()}</span>
+            <span class="log-msg">${escapeHtml(l.message)}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    // পেয়ারিং কোড রিকোয়েস্ট
+    async function requestPairingCode() {
+      const phoneInput = document.getElementById('phoneInput');
+      const phone = phoneInput.value.trim();
+      const btn = document.getElementById('btnRequestCode');
+
+      if (!phone || phone.length < 11) {
+        showToast('সঠিক মোবাইল নম্বর লিখুন (উদাঃ 88017XXXXXXXX)', true);
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerText = 'অপেক্ষা করুন...';
+
+      try {
+        const res = await fetch('/get-code', {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({ phone })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          showToast(`পেয়ারিং কোড তৈরি হয়েছে: ${data.pairingCode}`);
+          fetchStatus();
+        } else {
+          showToast(data.message || 'কোড আনতে ব্যর্থ হয়েছে', true);
+        }
+      } catch (err) {
+        showToast('সার্ভার রিকোয়েস্ট ব্যর্থ!', true);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'কোড আনুন';
+      }
+    }
+
+    // পেয়ারিং কোড রি-সেন্ড
+    async function resendPairingCode() {
+      try {
+        const res = await fetch('/resend-code', {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({})
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`নতুন পেয়ারিং কোড: ${data.pairingCode}`);
+          fetchStatus();
+        } else {
+          showToast(data.message, true);
+        }
+      } catch (err) {
+        showToast('কোড রি-সেন্ড ব্যর্থ!', true);
+      }
+    }
+
+    // ক্যাটালগ রিফ্রেশ
+    async function refreshCatalog() {
+      showToast('ক্যাটালগ রিফ্রেশ হচ্ছে...');
+      try {
+        const res = await fetch('/refresh-catalog', {
+          method: 'POST',
+          headers: getHeaders()
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`ক্যাটালগ সফলভাবে আপডেট! মোট পণ্য: ${data.total}`);
+          fetchStatus();
+        } else {
+          showToast(data.message, true);
+        }
+      } catch (err) {
+        showToast('ক্যাটালগ রিফ্রেশ ত্রুটি!', true);
+      }
+    }
+
+    // হার্ড রিসেট
+    async function confirmHardReset() {
+      const ok = confirm('⚠️ আপনি কি নিশ্চিত যে বর্তমান WhatsApp সেশন ক্লিয়ার করে নতুন করে পেয়ার করতে চান?');
+      if (!ok) return;
+
+      try {
+        const res = await fetch('/hard-reset', {
+          method: 'POST',
+          headers: getHeaders()
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(data.message);
+          fetchStatus();
+        } else {
+          showToast(data.message, true);
+        }
+      } catch (err) {
+        showToast('রিসেট ব্যর্থ!', true);
+      }
+    }
+
+    // এআই টেস্ট চ্যাট সিমুলেটর
+    async function sendTestChat() {
+      const input = document.getElementById('chatInput');
+      const text = input.value.trim();
+      const chatWin = document.getElementById('chatWindow');
+      const btn = document.getElementById('btnSendChat');
+
+      if (!text) return;
+
+      // ইউজার বাবল যুক্ত করা
+      const userBubble = document.createElement('div');
+      userBubble.className = 'chat-bubble user';
+      userBubble.innerText = text;
+      chatWin.appendChild(userBubble);
+      input.value = '';
+      chatWin.scrollTop = chatWin.scrollHeight;
+
+      // লোডিং স্টেট
+      btn.disabled = true;
+      const loadingBubble = document.createElement('div');
+      loadingBubble.className = 'chat-bubble bot';
+      loadingBubble.innerText = 'টাইপিং...';
+      chatWin.appendChild(loadingBubble);
+      chatWin.scrollTop = chatWin.scrollHeight;
+
+      try {
+        const res = await fetch('/api/ai-chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text })
+        });
+        const data = await res.json();
+        loadingBubble.innerText = data.reply || 'কোনো উত্তর পাওয়া যায়নি।';
+      } catch (err) {
+        loadingBubble.innerText = 'ভাইয়া, সাময়িক নেটওয়ার্ক ত্রুটি হয়েছে।';
+      } finally {
+        btn.disabled = false;
+        chatWin.scrollTop = chatWin.scrollHeight;
+      }
+    }
+
+    // প্রতি ৪ সেকেন্ডে অটো-পোলিং
+    fetchStatus();
+    setInterval(fetchStatus, 4000);
+  </script>
+</body>
+</html>
