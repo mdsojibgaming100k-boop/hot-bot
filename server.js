@@ -1,5 +1,5 @@
 /**
- * TechXZone WhatsApp AI Bot - LID & Encryption Handshake Fix
+ * TechXZone WhatsApp AI Bot - Phone JID Extractor & Guaranteed Text Delivery
  * Website: https://techxzone.shop
  */
 
@@ -423,10 +423,7 @@ async function startWhatsAppBot() {
       syncFullHistory: false,
       markOnlineOnConnect: true,
       generateHighQualityLinkPreview: false,
-      // 🚀 প্রি-কি এনক্রিপশন মিসিং প্রতিরোধ করতে ফলব্যাক মেসেজ স্টোর
-      getMessage: async (key) => {
-        return { conversation: 'hello' };
-      }
+      getMessage: async (key) => ({ conversation: 'hello' })
     });
 
     sock.ev.on('creds.update', async () => {
@@ -463,14 +460,23 @@ async function startWhatsAppBot() {
         if (!m.message) continue;
         const msgId = m.key.id;
 
-        // বট নিজের রিপ্লাই নিজে প্রসেস করবে না
         if (botSentMessageIds.has(msgId)) continue;
 
         const rawFrom = m.key.remoteJid;
         if (!rawFrom || rawFrom.endsWith('@g.us') || rawFrom.includes('status')) continue;
 
-        // 🚀 আসল প্রাপক আইডি নির্ধারণ
-        const targetJid = rawFrom;
+        // 🚀🎯 ম্যাজিক ফিক্স: LID থেকে আসল ফোন নম্বর উদ্ধার
+        let targetJid = rawFrom;
+        const candidatePn = 
+          (m.key?.remoteJidAlt && m.key.remoteJidAlt.includes('@s.whatsapp.net') && m.key.remoteJidAlt) ||
+          (m.key?.senderPn && m.key.senderPn.includes('@s.whatsapp.net') && m.key.senderPn) ||
+          (m.senderPn && m.senderPn.includes('@s.whatsapp.net') && m.senderPn) ||
+          (m.key?.participant && m.key.participant.includes('@s.whatsapp.net') && m.key.participant);
+
+        if (candidatePn) {
+          targetJid = candidatePn;
+        }
+
         const customerPhone = targetJid.split('@')[0].replace(/[^0-9]/g, '');
 
         const msgContent = m.message.ephemeralMessage?.message || m.message.viewOnceMessage?.message || m.message;
@@ -509,20 +515,25 @@ async function startWhatsAppBot() {
             ? `🎤 *আপনি বলেছেন:* "${incomingText}"\n\n${replyText}`
             : replyText;
 
-          // 🚀 Quoted Reply হিসেবে মেসেজ পাঠানো (ডেলিভারি গ্যারান্টিড)
-          const sent = await sock.sendMessage(targetJid, { text: finalReply }, { quoted: m });
+          // 🚀 আসল ফোন নম্বরে সরাসরি সেন্ড
+          const sent = await sock.sendMessage(targetJid, { text: finalReply });
           if (sent?.key?.id) {
             botSentMessageIds.add(sent.key.id);
             if (botSentMessageIds.size > 1000) {
               botSentMessageIds.delete(botSentMessageIds.values().next().value);
             }
           }
+
+          // যদি rawFrom আলাদা LID হয়, সেখানেও নিশ্চিতকরণের জন্য ফলব্যাক ডেলিভারি
+          if (rawFrom !== targetJid && rawFrom.endsWith('@lid')) {
+            try {
+              await sock.sendMessage(rawFrom, { text: finalReply });
+            } catch (_) {}
+          }
+
           addLog('info', `🚀 Delivered reply to ${customerPhone} successfully!`);
         } catch (err) {
           addLog('error', `Send error to ${customerPhone}: ${err.message}`);
-          try {
-            await sock.sendMessage(targetJid, { text: 'হ্যালো ভাইয়া! TechXZone-এ স্বাগতম। যেকোনো গ্যাজেটের নাম লিখে জানান ❤️' }, { quoted: m });
-          } catch (_) {}
         } finally {
           sock.sendPresenceUpdate('paused', targetJid).catch(() => {});
         }
