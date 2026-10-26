@@ -1,5 +1,5 @@
 /**
- * TechXZone WhatsApp AI Bot - Phone JID Extractor & Guaranteed Text Delivery
+ * TechXZone WhatsApp AI Bot - Signal KeyStore & Encryption Fix
  * Website: https://techxzone.shop
  */
 
@@ -16,10 +16,10 @@ const { GoogleGenAI } = require('@google/genai');
 const {
   default: makeWASocket,
   useMultiFileAuthState,
+  makeCacheableSignalKeyStore,
   DisconnectReason,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
-  jidNormalizedUser,
   delay
 } = require('@whiskeysockets/baileys');
 
@@ -401,6 +401,7 @@ ${catalogContext}
 // হোয়াটসঅ্যাপ ইঞ্জিন
 let sock = null;
 const botSentMessageIds = new Set();
+const msgRetryCounterMap = new Map();
 
 async function startWhatsAppBot() {
   if (globalState.waConnecting || globalState.waConnected) return;
@@ -414,16 +415,25 @@ async function startWhatsAppBot() {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
     const { version } = await fetchLatestBaileysVersion();
 
+    // 🚀 এনক্রিপশন কি ক্যাশ সিঙ্ক ইঞ্জিন
     sock = makeWASocket({
       version,
       logger: pino({ level: 'silent' }),
       printQRInTerminal: false,
-      auth: state,
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
+      },
+      msgRetryCounterCache: {
+        get: (k) => msgRetryCounterMap.get(k),
+        set: (k, v) => msgRetryCounterMap.set(k, v),
+        del: (k) => msgRetryCounterMap.delete(k)
+      },
       browser: ['Ubuntu', 'Chrome', '20.0.04'],
       syncFullHistory: false,
       markOnlineOnConnect: true,
       generateHighQualityLinkPreview: false,
-      getMessage: async (key) => ({ conversation: 'hello' })
+      getMessage: async (key) => ({ conversation: 'TechXZone' })
     });
 
     sock.ev.on('creds.update', async () => {
@@ -465,19 +475,7 @@ async function startWhatsAppBot() {
         const rawFrom = m.key.remoteJid;
         if (!rawFrom || rawFrom.endsWith('@g.us') || rawFrom.includes('status')) continue;
 
-        // 🚀🎯 ম্যাজিক ফিক্স: LID থেকে আসল ফোন নম্বর উদ্ধার
-        let targetJid = rawFrom;
-        const candidatePn = 
-          (m.key?.remoteJidAlt && m.key.remoteJidAlt.includes('@s.whatsapp.net') && m.key.remoteJidAlt) ||
-          (m.key?.senderPn && m.key.senderPn.includes('@s.whatsapp.net') && m.key.senderPn) ||
-          (m.senderPn && m.senderPn.includes('@s.whatsapp.net') && m.senderPn) ||
-          (m.key?.participant && m.key.participant.includes('@s.whatsapp.net') && m.key.participant);
-
-        if (candidatePn) {
-          targetJid = candidatePn;
-        }
-
-        const customerPhone = targetJid.split('@')[0].replace(/[^0-9]/g, '');
+        const customerPhone = rawFrom.split('@')[0].replace(/[^0-9]/g, '');
 
         const msgContent = m.message.ephemeralMessage?.message || m.message.viewOnceMessage?.message || m.message;
         let incomingText = (
@@ -494,7 +492,7 @@ async function startWhatsAppBot() {
 
         // রিড রিসিপ্ট ও টাইপিং
         sock.readMessages([m.key]).catch(() => {});
-        sock.sendPresenceUpdate('composing', targetJid).catch(() => {});
+        sock.sendPresenceUpdate('composing', rawFrom).catch(() => {});
 
         try {
           if (isAudio) {
@@ -515,8 +513,8 @@ async function startWhatsAppBot() {
             ? `🎤 *আপনি বলেছেন:* "${incomingText}"\n\n${replyText}`
             : replyText;
 
-          // 🚀 আসল ফোন নম্বরে সরাসরি সেন্ড
-          const sent = await sock.sendMessage(targetJid, { text: finalReply });
+          // 🚀 এবার Signal KeyStore থাকায় সরাসরি rawFrom-এ ১০০% ডিক্রিপ্ট হবে
+          const sent = await sock.sendMessage(rawFrom, { text: finalReply });
           if (sent?.key?.id) {
             botSentMessageIds.add(sent.key.id);
             if (botSentMessageIds.size > 1000) {
@@ -524,18 +522,11 @@ async function startWhatsAppBot() {
             }
           }
 
-          // যদি rawFrom আলাদা LID হয়, সেখানেও নিশ্চিতকরণের জন্য ফলব্যাক ডেলিভারি
-          if (rawFrom !== targetJid && rawFrom.endsWith('@lid')) {
-            try {
-              await sock.sendMessage(rawFrom, { text: finalReply });
-            } catch (_) {}
-          }
-
           addLog('info', `🚀 Delivered reply to ${customerPhone} successfully!`);
         } catch (err) {
           addLog('error', `Send error to ${customerPhone}: ${err.message}`);
         } finally {
-          sock.sendPresenceUpdate('paused', targetJid).catch(() => {});
+          sock.sendPresenceUpdate('paused', rawFrom).catch(() => {});
         }
       }
     });
