@@ -1,0 +1,28 @@
+# এনভায়রনমেন্ট এবং কনফিগারেশন ফাইল
+.env
+.env.local
+.env.*.local
+
+# নোড প্যাকেজ ডিরেক্টরি
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# হোয়াটসঅ্যাপ লোকাল সেশন ডিরেক্টরি (ডাটাবেজে ব্যাকআপ থাকবে)
+auth_info_baileys/
+baileys_store_multi.json
+session/
+
+# লোকাল ক্যাশ ফাইল
+catalog_cache.json
+
+# অপারেটিং সিস্টেম এবং আইডিই মেটাডাটা
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# লগ ফাইল
+logs/
+*.log
