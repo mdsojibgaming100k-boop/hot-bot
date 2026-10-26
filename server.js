@@ -1,5 +1,10 @@
 /**
- * TechXZone WhatsApp AI Bot - Signal KeyStore & Encryption Fix
+ * TechXZone WhatsApp AI Bot - Perfect Inbox Delivery Edition
+ * Combined with:
+ *  1. Exact Working Baileys Inbox Delivery from your script (presenceSubscribe + sender routing)
+ *  2. Dual Filter: Category + Budget (e.g. 1500 tk er vitor fan)
+ *  3. Voice Message (Audio Note) Listener via Gemini Multimodal
+ *  4. Direct Buy Links & Ultra-Fast Instant Reply
  * Website: https://techxzone.shop
  */
 
@@ -16,12 +21,10 @@ const { GoogleGenAI } = require('@google/genai');
 const {
   default: makeWASocket,
   useMultiFileAuthState,
-  makeCacheableSignalKeyStore,
   DisconnectReason,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
-  delay,
-  jidNormalizedUser
+  delay
 } = require('@whiskeysockets/baileys');
 
 const PORT = process.env.PORT || 3000;
@@ -31,15 +34,15 @@ const GEMINI_FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || 'gemini-3.
   .split(',')
   .map(m => m.trim())
   .filter(Boolean);
-const AI_TIMEOUT_MS = 15000;
+const AI_TIMEOUT_MS = 10000;
 const ADMIN_PHONE = (process.env.ADMIN_PHONE || '8801404277094').replace(/[^0-9]/g, '');
 const DASHBOARD_TOKEN = process.env.DASHBOARD_TOKEN || 'TechXZoneSecretDashboardAuthKey2026';
 const SITE_BASE_URL = (process.env.SITE_BASE_URL || 'https://techxzone.shop').replace(/\/+$/, '');
 const CATALOG_REFRESH_MS = parseInt(process.env.CATALOG_REFRESH_MS, 10) || 900000;
 
-const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
-if (!fs.existsSync(AUTH_DIR)) {
-  fs.mkdirSync(AUTH_DIR, { recursive: true });
+const SESSION_DIR = path.join(__dirname, 'auth_info_baileys');
+if (!fs.existsSync(SESSION_DIR)) {
+  fs.mkdirSync(SESSION_DIR, { recursive: true });
 }
 
 let aiClient = null;
@@ -67,7 +70,7 @@ function addLog(level, message) {
   console.log(`[${time}] [${level.toUpperCase()}]: ${message}`);
 }
 
-// ক্যাটালগ ক্যাশিং
+// ================= ১. ক্যাটালগ ক্যাশিং =================
 let cachedCatalog = [];
 async function refreshProductCatalog() {
   try {
@@ -90,8 +93,10 @@ async function refreshProductCatalog() {
     addLog('warn', `Catalog error: ${err.message}`);
   }
 }
+refreshProductCatalog();
 setInterval(refreshProductCatalog, CATALOG_REFRESH_MS);
 
+// ================= ২. বাজেট ও ক্যাটাগরি সার্চ ইঞ্জিন =================
 function parseBudgetFromText(text) {
   const bnDigits = {'০':'0','১':'1','২':'2','৩':'3','৪':'4','৫':'5','৬':'6','৭':'7','৮':'8','৯':'9'};
   const normalized = text.replace(/[০-৯]/g, d => bnDigits[d]);
@@ -127,7 +132,7 @@ function searchSmartProducts(query) {
     }
   }
 
-  // ১. ক্যাটাগরি + বাজেট
+  // ১. ক্যাটাগরি + বাজেট (যেমন: ১৫০০ টাকার ভেতর ফ্যান)
   if (matchedCategory && budget) {
     const aliases = categoryKeywords[matchedCategory];
     const allCategoryItems = cachedCatalog.filter(p => {
@@ -191,7 +196,7 @@ function searchSmartProducts(query) {
   return { type: 'general', items: top.length > 0 ? top : cachedCatalog.slice(0, 2) };
 }
 
-// সেশন রিস্টোর/ব্যাকআপ
+// ================= ৩. সেশন ব্যাকআপ ও রিস্টোর =================
 async function restoreSessionFromRemote() {
   try {
     const res = await axios.get(`${SITE_BASE_URL}/api.php?action=get_settings&key=wa_full_session_bundle`, { timeout: 8000 });
@@ -203,7 +208,7 @@ async function restoreSessionFromRemote() {
       for (const [f, b64] of Object.entries(bundle.files)) {
         const safe = path.basename(f);
         if (!safe.includes('..')) {
-          fs.writeFileSync(path.join(AUTH_DIR, safe), Buffer.from(b64, 'base64'));
+          fs.writeFileSync(path.join(SESSION_DIR, safe), Buffer.from(b64, 'base64'));
         }
       }
       addLog('info', 'Remote session restored.');
@@ -215,10 +220,10 @@ async function restoreSessionFromRemote() {
 
 async function backupSessionToRemote() {
   try {
-    if (!fs.existsSync(AUTH_DIR) || !fs.existsSync(path.join(AUTH_DIR, 'creds.json'))) return;
+    if (!fs.existsSync(SESSION_DIR) || !fs.existsSync(path.join(SESSION_DIR, 'creds.json'))) return;
     const bundle = { files: {}, updatedAt: new Date().toISOString() };
-    for (const f of fs.readdirSync(AUTH_DIR)) {
-      const full = path.join(AUTH_DIR, f);
+    for (const f of fs.readdirSync(SESSION_DIR)) {
+      const full = path.join(SESSION_DIR, f);
       if (fs.statSync(full).isFile()) bundle.files[f] = fs.readFileSync(full).toString('base64');
     }
     await axios.post(`${SITE_BASE_URL}/api.php?action=save_settings`, {
@@ -229,7 +234,7 @@ async function backupSessionToRemote() {
 }
 setInterval(backupSessionToRemote, 300000);
 
-// ভয়েস অডিও প্রসেসর (অক্ষত রাখা হয়েছে)
+// ================= ৪. ভয়েস অডিও প্রসেসর =================
 async function transcribeAudioWithGemini(audioBuffer, mimeType = 'audio/ogg') {
   if (!aiClient) return '';
   try {
@@ -251,16 +256,13 @@ async function transcribeAudioWithGemini(audioBuffer, mimeType = 'audio/ogg') {
       }
     });
 
-    const text = response.text?.trim() || '';
-    addLog('info', `Voice recognized: "${text}"`);
-    return text;
+    return response.text?.trim() || '';
   } catch (err) {
-    addLog('error', `Voice error: ${err.message}`);
     return '';
   }
 }
 
-// ফাস্ট এআই টেক্সট (অক্ষত রাখা হয়েছে)
+// ================= ৫. ফাস্ট এআই জেনারেটর =================
 async function callGeminiUltraFast(prompt, systemInstruction) {
   if (!aiClient) throw new Error('GEMINI_API_KEY Missing');
   const models = [GEMINI_MODEL, ...GEMINI_FALLBACK_MODELS];
@@ -288,7 +290,7 @@ async function callGeminiUltraFast(prompt, systemInstruction) {
   throw new Error('AI Generation Failed');
 }
 
-// গ্রাহকের মেসেজ লজিক (অক্ষত রাখা হয়েছে)
+// ================= ৬. গ্রাহকের মেসেজ লজিক =================
 async function handleCustomerIncomingMessage(phone, text) {
   const cleanInput = text.trim();
   const searchResult = searchSmartProducts(cleanInput);
@@ -399,41 +401,30 @@ ${catalogContext}
   }
 }
 
-// হোয়াটসঅ্যাপ ইঞ্জিন (ফ্রিক্সড)
+// ================= ৭. আপনার স্ক্রিপ্টের শতভাগ নিখুঁত ইনবক্স ডেলিভারি ইঞ্জিন =================
 let sock = null;
-const botSentMessageIds = new Set();
-const msgRetryCounterMap = new Map();
 
 async function startWhatsAppBot() {
   if (globalState.waConnecting || globalState.waConnected) return;
   globalState.waConnecting = true;
 
   try {
-    if (!fs.existsSync(path.join(AUTH_DIR, 'creds.json'))) {
+    if (!fs.existsSync(path.join(SESSION_DIR, 'creds.json'))) {
       await restoreSessionFromRemote();
     }
 
-    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
     const { version } = await fetchLatestBaileysVersion();
 
+    // 🚀 আপনার কোডের হুবহু স্টাইল: সাধারণ ও সরাসরি সংযোগ
     sock = makeWASocket({
       version,
       logger: pino({ level: 'silent' }),
+      auth: state,
       printQRInTerminal: false,
-      auth: {
-        creds: state.creds,
-        keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
-      },
-      msgRetryCounterCache: {
-        get: (k) => msgRetryCounterMap.get(k),
-        set: (k, v) => msgRetryCounterMap.set(k, v),
-        del: (k) => msgRetryCounterMap.delete(k)
-      },
       browser: ['Ubuntu', 'Chrome', '20.0.04'],
       syncFullHistory: false,
-      markOnlineOnConnect: true,
-      generateHighQualityLinkPreview: false,
-      getMessage: async (key) => ({ conversation: 'TechXZone' })
+      markOnlineOnConnect: false
     });
 
     sock.ev.on('creds.update', async () => {
@@ -441,18 +432,21 @@ async function startWhatsAppBot() {
       backupSessionToRemote().catch(() => {});
     });
 
-    sock.ev.on('connection.update', async (update) => {
+    sock.ev.on('connection.update', (update) => {
       const { connection, lastDisconnect, qr } = update;
-      if (qr) globalState.qrCodeDataUrl = await QRCode.toDataURL(qr);
+      if (qr) globalState.qrCodeDataUrl = QRCode.toDataURL(qr).catch(() => null);
 
       if (connection === 'close') {
         globalState.waConnected = false;
         globalState.waConnecting = false;
-        const code = lastDisconnect?.error?.output?.statusCode;
-        addLog('warn', `WhatsApp Closed. Code: ${code}`);
+        const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+        addLog('warn', `WhatsApp Closed. Should reconnect: ${shouldReconnect}`);
 
-        if (code !== DisconnectReason.loggedOut) {
-          if (sock) { try { sock.end(undefined); } catch (_) {} sock = null; }
+        if (shouldReconnect) {
+          if (sock) {
+            try { sock.ev.removeAllListeners(); sock.end(undefined); } catch (e) {}
+            sock = null;
+          }
           setTimeout(startWhatsAppBot, 3000);
         }
       } else if (connection === 'open') {
@@ -460,33 +454,26 @@ async function startWhatsAppBot() {
         globalState.waConnecting = false;
         globalState.qrCodeDataUrl = null;
         globalState.pairingCode = null;
-        addLog('info', '✅ WhatsApp Online! Ready to receive messages.');
-        sock.sendPresenceUpdate('available').catch(() => {});
+        addLog('info', '✅ [TechXZone WhatsApp Bot] সফলভাবে কানেক্টেড আছে!');
       }
     });
 
+    // 🚀 আপনার স্ক্রিপ্টের আসল ইনবক্স হ্যান্ডলার
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-      // শুধু নতুন আগত নোটিফিকেশন মেসেজ হ্যান্ডেল করা হবে
-      if (type !== 'notify') return;
+      try {
+        if (type !== 'notify') return;
+        const msg = messages[0];
+        if (!msg.message || msg.key.fromMe) return;
 
-      for (const m of messages) {
-        if (!m.message) continue;
-        
-        // বট নিজের পাঠানো মেসেজ বা অন্য কোনো ডিভাইস থেকে নিজের পাঠানো মেসেজ সম্পূর্ণ ইগনোর করবে
-        if (m.key.fromMe) continue;
+        const msgTimestamp = Number(msg.messageTimestamp || 0);
+        const currentTimestamp = Math.floor(Date.now() / 1000);
+        if (msgTimestamp && (currentTimestamp - msgTimestamp > 60)) return;
 
-        const msgId = m.key.id;
-        if (botSentMessageIds.has(msgId)) continue;
+        const sender = msg.key.remoteJid;
+        if (sender.includes('@g.us')) return;
 
-        const rawFrom = m.key.remoteJid;
-        if (!rawFrom || rawFrom.endsWith('@g.us') || rawFrom.includes('status') || rawFrom.includes('newsletter')) continue;
-
-        // ✅ ফিক্স ১: গ্রাহকের আসল ফোন নম্বর ও স্ট্যান্ডার্ড হোয়াটসঅ্যাপ JID নিশ্চিত করা (LID ফিক্স)
-        const customerPhone = (m.key.participant || rawFrom).split('@')[0].replace(/[^0-9]/g, '');
-        const targetJid = jidNormalizedUser(rawFrom.includes('@lid') ? `${customerPhone}@s.whatsapp.net` : rawFrom);
-
-        const msgContent = m.message.ephemeralMessage?.message || m.message.viewOnceMessage?.message || m.message;
-        let incomingText = (
+        const msgContent = msg.message.ephemeralMessage?.message || msg.message.viewOnceMessage?.message || msg.message;
+        let text = (
           msgContent.conversation ||
           msgContent.extendedTextMessage?.text ||
           msgContent.imageMessage?.caption ||
@@ -494,63 +481,58 @@ async function startWhatsAppBot() {
         ).trim();
 
         const isAudio = !!msgContent.audioMessage;
-        if (!incomingText && !isAudio) continue;
+        if (!text && !isAudio) return;
 
-        addLog('info', `📩 Message from ${customerPhone}: "${incomingText || '[Voice Note]'}"`);
+        addLog('info', `[কাস্টমার]: ${text || '[ভয়েস মেসেজ]'}`);
 
-        // রিড রিসিপ্ট ও টাইপিং ইন্ডিকেটর পাঠানো
-        await sock.readMessages([m.key]).catch(() => {});
-        await sock.sendPresenceUpdate('composing', targetJid).catch(() => {});
+        // আপনার কোডের ম্যাজিক: রিড রিসিপ্ট + presenceSubscribe
+        try {
+          await sock.readMessages([msg.key]);
+          await sock.presenceSubscribe(sender);
+          await sock.sendPresenceUpdate('composing', sender);
+        } catch (e) {}
+
+        // ভয়েস হলে ট্রান্সক্রাইব করা
+        if (isAudio) {
+          try {
+            const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
+            const mime = msgContent.audioMessage.mimetype || 'audio/ogg';
+            text = await transcribeAudioWithGemini(buffer, mime);
+          } catch (e) {}
+        }
+
+        if (!text) {
+          try { await sock.sendPresenceUpdate('paused', sender); } catch (e) {}
+          return;
+        }
+
+        // এআই দিয়ে উত্তর তৈরি
+        const replyText = await handleCustomerIncomingMessage(sender, text);
+
+        const finalReply = isAudio 
+          ? `🎤 *আপনি বলেছেন:* "${text}"\n\n${replyText}`
+          : replyText;
+
+        // 🚀 আপনার কোডের হুবহু উপায়ে ইনবক্সে সরাসরি মেসেজ পাঠানো
+        await sock.sendMessage(sender, { text: finalReply });
+        addLog('info', `✅ [বট উত্তর পাঠানো সম্পন্ন]: ${sender}`);
 
         try {
-          if (isAudio) {
-            addLog('info', `Transcribing audio from ${customerPhone}...`);
-            const buffer = await downloadMediaMessage(m, 'buffer', {}, { logger: pino({ level: 'silent' }) });
-            const mime = msgContent.audioMessage.mimetype || 'audio/ogg';
-            incomingText = await transcribeAudioWithGemini(buffer, mime);
-          }
+          await sock.sendPresenceUpdate('paused', sender);
+        } catch (e) {}
 
-          if (!incomingText) {
-            await sock.sendPresenceUpdate('paused', targetJid).catch(() => {});
-            continue;
-          }
-
-          let replyText = await handleCustomerIncomingMessage(customerPhone, incomingText);
-          if (!replyText) {
-            replyText = 'হ্যালো ভাইয়া! TechXZone-এ স্বাগতম। আপনি কোন গ্যাজেটটি দেখতে চাচ্ছেন জানান, আমি এখনই লিংক ও দাম দিচ্ছি।';
-          }
-
-          const finalReply = isAudio 
-            ? `🎤 *আপনি বলেছেন:* "${incomingText}"\n\n${replyText}`
-            : replyText;
-
-          // ✅ ফিক্স ২: টাইপিং শেষ করে ১ সেকেন্ড অপেক্ষা করা যাতে প্যাকেট ড্রপ না হয়
-          await sock.sendPresenceUpdate('paused', targetJid).catch(() => {});
-          await delay(1000);
-
-          // ✅ ফিক্স ৩: targetJid-তে সরাসরি মেসেজ পাঠানো এবং কোট (quoted) রেফারেন্স দেওয়া
-          const sent = await sock.sendMessage(targetJid, { text: finalReply }, { quoted: m });
-          
-          if (sent?.key?.id) {
-            botSentMessageIds.add(sent.key.id);
-            if (botSentMessageIds.size > 1000) {
-              botSentMessageIds.delete(botSentMessageIds.values().next().value);
-            }
-          }
-
-          addLog('info', `🚀 Delivered reply to ${customerPhone} successfully!`);
-        } catch (err) {
-          addLog('error', `Send error to ${customerPhone}: ${err.message}`);
-        }
+      } catch (err) {
+        addLog('error', `Error in messages.upsert: ${err.message}`);
       }
     });
+
   } catch (err) {
     globalState.waConnecting = false;
     setTimeout(startWhatsAppBot, 5000);
   }
 }
 
-// এক্সপ্রেস অ্যাপ
+// ================= ৮. এক্সপ্রেস অ্যাপ ও ড্যাশবোর্ড =================
 const app = express();
 app.set('trust proxy', 1);
 
@@ -593,6 +575,7 @@ app.post('/get-code', async (req, res) => {
   try {
     if (!sock) { await startWhatsAppBot(); await delay(2000); }
     if (sock && !sock.authState.creds.registered) {
+      await delay(1500);
       const code = await sock.requestPairingCode(phone);
       globalState.pairingCode = code;
       globalState.pairingPhone = phone;
@@ -607,15 +590,21 @@ app.post('/get-code', async (req, res) => {
 
 app.post('/hard-reset', async (req, res) => {
   try {
-    if (sock) { try { sock.end(undefined); } catch (_) {} sock = null; }
+    if (sock) { 
+      try { 
+        sock.ev.removeAllListeners();
+        sock.end(undefined); 
+      } catch (_) {} 
+      sock = null; 
+    }
     globalState.waConnected = false;
     globalState.waConnecting = false;
     globalState.pairingCode = null;
     globalState.qrCodeDataUrl = null;
 
-    if (fs.existsSync(AUTH_DIR)) {
-      fs.rmSync(AUTH_DIR, { recursive: true, force: true });
-      fs.mkdirSync(AUTH_DIR, { recursive: true });
+    if (fs.existsSync(SESSION_DIR)) {
+      fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+      fs.mkdirSync(SESSION_DIR, { recursive: true });
     }
     try {
       await axios.post(`${SITE_BASE_URL}/api.php?action=save_settings`, {
@@ -650,6 +639,5 @@ app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.ht
 
 app.listen(PORT, '0.0.0.0', async () => {
   addLog('info', `Server running on port ${PORT}`);
-  await refreshProductCatalog();
   await startWhatsAppBot();
 });
