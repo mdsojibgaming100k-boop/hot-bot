@@ -1,5 +1,5 @@
 /**
- * TechXZone WhatsApp AI Bot - Guaranteed Message Delivery
+ * TechXZone WhatsApp AI Bot - LID & Encryption Handshake Fix
  * Website: https://techxzone.shop
  */
 
@@ -30,7 +30,7 @@ const GEMINI_FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || 'gemini-3.
   .split(',')
   .map(m => m.trim())
   .filter(Boolean);
-const AI_TIMEOUT_MS = 15000; // ১৫ সেকেন্ড টাইমআউট (যাতে স্লো হলেও মিস না হয়)
+const AI_TIMEOUT_MS = 15000;
 const ADMIN_PHONE = (process.env.ADMIN_PHONE || '8801404277094').replace(/[^0-9]/g, '');
 const DASHBOARD_TOKEN = process.env.DASHBOARD_TOKEN || 'TechXZoneSecretDashboardAuthKey2026';
 const SITE_BASE_URL = (process.env.SITE_BASE_URL || 'https://techxzone.shop').replace(/\/+$/, '');
@@ -114,7 +114,8 @@ function searchSmartProducts(query) {
     headphone: ['headphone', 'headset', 'earphone', 'airpod', 'earbuds', 'হেডফোন', 'ইয়ারফোন', 'টিডব্লিউএস', 'tws', 'wireless'],
     light: ['light', 'লাইট', 'ল্যাম্প', 'bulb', 'বাতি'],
     speaker: ['speaker', 'স্পিকার', 'সাউন্ড', 'bluetooth speaker'],
-    charger: ['charger', 'চার্জার', 'cable', 'ক্যাবল', 'power bank', 'পাওয়ার ব্যাংক']
+    charger: ['charger', 'চার্জার', 'cable', 'ক্যাবল', 'power bank', 'পাওয়ার ব্যাংক'],
+    ups: ['ups', 'ইউপিএস', 'mini ups', 'router ups', 'মিনি ইউপিএস', 'রাউটার']
   };
 
   let matchedCategory = null;
@@ -231,7 +232,6 @@ setInterval(backupSessionToRemote, 300000);
 async function transcribeAudioWithGemini(audioBuffer, mimeType = 'audio/ogg') {
   if (!aiClient) return '';
   try {
-    addLog('info', 'Voice message decoding via Gemini...');
     const audioPart = {
       inlineData: {
         data: audioBuffer.toString('base64'),
@@ -298,7 +298,8 @@ async function handleCustomerIncomingMessage(phone, text) {
     headphone: 'হেডফোন / ইয়ারফোন',
     light: 'লাইট',
     speaker: 'স্পিকার',
-    charger: 'চার্জার / পাওয়ার ব্যাংক'
+    charger: 'চার্জার / পাওয়ার ব্যাংক',
+    ups: 'মিনি ইউপিএস'
   };
 
   // ১. ক্যাটাগরি + বাজেট
@@ -422,8 +423,10 @@ async function startWhatsAppBot() {
       syncFullHistory: false,
       markOnlineOnConnect: true,
       generateHighQualityLinkPreview: false,
-      // 🚀 প্রি-কি এনক্রিপশন মিসিং প্রতিরোধ করতে ফলব্যাক স্টোর
-      getMessage: async () => ({ conversation: 'hello' })
+      // 🚀 প্রি-কি এনক্রিপশন মিসিং প্রতিরোধ করতে ফলব্যাক মেসেজ স্টোর
+      getMessage: async (key) => {
+        return { conversation: 'hello' };
+      }
     });
 
     sock.ev.on('creds.update', async () => {
@@ -460,13 +463,14 @@ async function startWhatsAppBot() {
         if (!m.message) continue;
         const msgId = m.key.id;
 
+        // বট নিজের রিপ্লাই নিজে প্রসেস করবে না
         if (botSentMessageIds.has(msgId)) continue;
 
         const rawFrom = m.key.remoteJid;
         if (!rawFrom || rawFrom.endsWith('@g.us') || rawFrom.includes('status')) continue;
 
-        // 🚀 ডিভাইস আইডি বাদ দিয়ে পিওর গ্রাহক JID তৈরি (ডেলিভারি ফেইল রোধ করে)
-        const targetJid = jidNormalizedUser(rawFrom);
+        // 🚀 আসল প্রাপক আইডি নির্ধারণ
+        const targetJid = rawFrom;
         const customerPhone = targetJid.split('@')[0].replace(/[^0-9]/g, '');
 
         const msgContent = m.message.ephemeralMessage?.message || m.message.viewOnceMessage?.message || m.message;
@@ -496,7 +500,6 @@ async function startWhatsAppBot() {
 
           if (!incomingText) continue;
 
-          // এআই থেকে রিপ্লাই সংগ্রহ
           let replyText = await handleCustomerIncomingMessage(customerPhone, incomingText);
           if (!replyText) {
             replyText = 'হ্যালো ভাইয়া! TechXZone-এ স্বাগতম। আপনি কোন গ্যাজেটটি দেখতে চাচ্ছেন জানান, আমি এখনই লিংক ও দাম দিচ্ছি।';
@@ -506,8 +509,8 @@ async function startWhatsAppBot() {
             ? `🎤 *আপনি বলেছেন:* "${incomingText}"\n\n${replyText}`
             : replyText;
 
-          // 🚀 ডেলিভারি নিশ্চিত করতে সরাসরি targetJid-তে সেন্ড
-          const sent = await sock.sendMessage(targetJid, { text: finalReply });
+          // 🚀 Quoted Reply হিসেবে মেসেজ পাঠানো (ডেলিভারি গ্যারান্টিড)
+          const sent = await sock.sendMessage(targetJid, { text: finalReply }, { quoted: m });
           if (sent?.key?.id) {
             botSentMessageIds.add(sent.key.id);
             if (botSentMessageIds.size > 1000) {
@@ -517,9 +520,8 @@ async function startWhatsAppBot() {
           addLog('info', `🚀 Delivered reply to ${customerPhone} successfully!`);
         } catch (err) {
           addLog('error', `Send error to ${customerPhone}: ${err.message}`);
-          // ফলব্যাক সেফটি রিপ্লাই
           try {
-            await sock.sendMessage(targetJid, { text: 'হ্যালো ভাইয়া! TechXZone-এ স্বাগতম। আপনি কোন গ্যাজেটটি দেখতে চাচ্ছেন নাম লিখে জানান ❤️' });
+            await sock.sendMessage(targetJid, { text: 'হ্যালো ভাইয়া! TechXZone-এ স্বাগতম। যেকোনো গ্যাজেটের নাম লিখে জানান ❤️' }, { quoted: m });
           } catch (_) {}
         } finally {
           sock.sendPresenceUpdate('paused', targetJid).catch(() => {});
