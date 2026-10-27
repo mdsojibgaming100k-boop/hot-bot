@@ -2,7 +2,7 @@
  * TechXZone WhatsApp AI Bot - Perfect Inbox Delivery & Order Booking Edition
  * Combined with:
  *  1. Dual Filter: Category + Budget (e.g. 1500 tk er vitor fan)
- *  2. Voice Message (Audio Note) Auto Transcribe via Gemini 3.8 Flash
+ *  2. Voice Message (Audio Note) Auto Transcribe via Gemini
  *  3. Direct Website Order Creation (createWebsiteOrder + Admin WhatsApp Alert)
  *  4. Copy-friendly Order Form Split Send
  * Website: https://techxzone.shop
@@ -29,14 +29,11 @@ const {
 
 const PORT = process.env.PORT || 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-
-// 🚀 গুগলের নতুন রিকমেন্ডেড ও লাইভ মডেল
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-const GEMINI_FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || 'gemini-3.6-flash,gemini-3.5-flash')
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GEMINI_FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS || 'gemini-3.5-flash,gemini-3.6-flash')
   .split(',')
   .map(m => m.trim())
   .filter(Boolean);
-
 const ADMIN_PHONE = (process.env.ADMIN_PHONE || '8801404277094').replace(/[^0-9]/g, '');
 const DASHBOARD_TOKEN = process.env.DASHBOARD_TOKEN || 'TechXZoneSecretDashboardAuthKey2026';
 const SITE_BASE_URL = (process.env.SITE_BASE_URL || 'https://techxzone.shop').replace(/\/+$/, '');
@@ -106,7 +103,7 @@ function parseBudgetFromText(text) {
   if (rangeMatch) return { min: parseInt(rangeMatch[1], 10), max: parseInt(rangeMatch[2], 10) };
 
   const maxMatch = normalized.match(/(?:বাজেট|budget|টাকার মধ্যে|টাকার নিচে|টাকার ভেতর|টাকার ভিতর|er moddhe|er niche|er vitor|under|moddhe|dam|দাম)\s*:?\s*(\d+)/i) ||
-                   normalized.match(/(\d+)\s*(?:টাকা|টাকার|tk)?\s*(?:এর মধ্যে|এর নিচে|এর ভেতর|এর ভিতর|er moddhe|er vitor|moddhe|er|tk)/i);
+                   normalized.match(/(\d+)\s*(?:টাকা|টাকার|tk)?\s*(?:এর মধ্যে|এর নিচে|এর ভেতর|এর ভিতর|er moddhe|er vitor|moddhe|er)/i);
   if (maxMatch) return { min: 0, max: parseInt(maxMatch[1], 10) };
   return null;
 }
@@ -117,7 +114,7 @@ function searchSmartProducts(query) {
   const budget = parseBudgetFromText(q);
 
   const categoryKeywords = {
-    fan: ['fan', 'ফ্যান', 'বাতাস', 'টেবিল ফ্যান', 'হাত ফ্যান', 'মিনি ফ্যান', 'নেক ফ্যান', 'neck fan', 'charger fan', 'চার্জার ফ্যান'],
+    fan: ['fan', 'ফ্যান', 'বাতাস', 'টেবিল ফ্যান', 'হাত ফ্যান', 'মিনি ফ্যান', 'নেক ফ্যান', 'neck fan'],
     watch: ['watch', 'ঘড়ি', 'ঘড়ি', 'স্মার্টওয়াচ', 'smartwatch', 'smart watch', 't900', 'ultra', 'হাতের ঘড়ি'],
     headphone: ['headphone', 'headset', 'earphone', 'airpod', 'earbuds', 'হেডফোন', 'ইয়ারফোন', 'টিডব্লিউএস', 'tws', 'wireless'],
     light: ['light', 'লাইট', 'ল্যাম্প', 'bulb', 'বাতি'],
@@ -134,7 +131,7 @@ function searchSmartProducts(query) {
     }
   }
 
-  // ১. ক্যাটাগরি + বাজেট (যেমন: ১৫০০ টাকার ফ্যান)
+  // ১. ক্যাটাগরি + বাজেট (যেমন: ১৫০০ টাকার ভেতর ফ্যান)
   if (matchedCategory && budget) {
     const aliases = categoryKeywords[matchedCategory];
     const allCategoryItems = cachedCatalog.filter(p => {
@@ -286,55 +283,44 @@ async function backupSessionToRemote() {
 }
 setInterval(backupSessionToRemote, 300000);
 
-// ================= ৫. ভয়েস অডিও প্রসেসর (Gemini 3.8 Flash দিয়ে ফিক্সড) =================
-async function transcribeAudioWithGemini(audioBuffer, rawMime = 'audio/ogg') {
-  if (!aiClient) {
-    addLog('error', 'Gemini Client initialized na!');
-    return '';
-  }
+// ================= ৫. ভয়েস অডিও প্রসেসর (Gemini 3.5 Flash) =================
+async function transcribeAudioWithGemini(audioBuffer, mimeType = 'audio/ogg') {
+  if (!aiClient) return '';
   
-  let cleanMime = 'audio/ogg';
-  if (rawMime) {
-    const baseMime = rawMime.split(';')[0].trim().toLowerCase();
-    if (baseMime.includes('ogg') || baseMime.includes('opus')) {
-      cleanMime = 'audio/ogg';
-    } else if (baseMime.includes('mp4') || baseMime.includes('m4a')) {
-      cleanMime = 'audio/mp4';
-    } else if (baseMime.includes('mp3') || baseMime.includes('mpeg')) {
-      cleanMime = 'audio/mp3';
-    } else if (baseMime.includes('wav')) {
-      cleanMime = 'audio/wav';
+  // ভয়েস ট্রান্সক্রিপশনের জন্য সরাসরি gemini-3.5-flash ব্যবহার করা হচ্ছে
+  const voiceModels = ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.8-flash'];
+  
+  const cleanMime = (mimeType || 'audio/ogg').split(';')[0].trim();
+  const audioPart = {
+    inlineData: {
+      data: audioBuffer.toString('base64'),
+      mimeType: cleanMime
     }
-  }
+  };
+  const prompt = 'এই ভয়েস মেসেজে গ্রাহক কী বলেছেন তা হুবহু বাংলায় বা ইংরেজিতে শুধু টেক্সট আকারে লিখুন। অতিরিক্ত কোনো ব্যাখ্যা লিখবেন না।';
 
-  const base64Data = audioBuffer.toString('base64');
-  const models = [GEMINI_MODEL, ...GEMINI_FALLBACK_MODELS];
-
-  for (const modelId of models) {
+  for (const modelId of voiceModels) {
     try {
       const response = await aiClient.models.generateContent({
         model: modelId,
-        contents: [
-          {
-            text: 'এই অডিও মেসেজে কাস্টমার কি পণ্য চান বা কি কথা বলেছেন তা হুবহু বাংলায় বা ইংরেজিতে শুধু টেক্সট আকারে লিখুন। অন্য কোনো বাক্য বা ব্যাখ্যা লিখবেন না।'
-          },
-          {
-            inlineData: {
-              mimeType: cleanMime,
-              data: base64Data
-            }
-          }
-        ]
+        contents: [audioPart, prompt],
+        config: {
+          temperature: 0.1,
+          maxOutputTokens: 200,
+          thinkingConfig: { thinkingBudget: 0 }
+        }
       });
 
-      const transcript = response.text ? response.text.trim() : '';
-      if (transcript && transcript.length > 0) {
-        return transcript;
+      const text = response.text?.trim() || '';
+      if (text) {
+        addLog('info', `Voice transcribed via [${modelId}]: "${text}"`);
+        return text;
       }
     } catch (err) {
-      addLog('warn', `Voice Transcribe [${modelId}] Error: ${err.message}`);
+      addLog('warn', `Voice transcribe failed on [${modelId}]: ${err.message}`);
     }
   }
+
   return '';
 }
 
@@ -407,7 +393,7 @@ async function handleCustomerIncomingMessage(phone, text) {
       if (searchResult.allCategoryItems && searchResult.allCategoryItems.length > 0) {
         searchResult.allCategoryItems.sort((a, b) => a.price - b.price);
         const lowest = searchResult.allCategoryItems[0];
-        return `ভাইয়া, দুঃখিত! ৳${searchResult.budget.max} বাজেটের মধ্যে কোনো ${catLabel} বর্তমানে স্টকে নেই।\n\n` +
+        return `ভাইয়া, দুঃখিত! ৳${searchResult.budget.max} বাজেটের মধ্যে কোনো ${catLabel} বর্তমানে নেই।\n\n` +
                `তবে আমাদের সবচেয়ে কমদামী সেরা ${catLabel} হলো:\n` +
                `👉 *${lowest.name}*\n` +
                `💵 মূল্য: ৳${lowest.price}\n` +
@@ -421,7 +407,7 @@ async function handleCustomerIncomingMessage(phone, text) {
 
   // ২. শুধু ক্যাটাগরি
   if (searchResult.type === 'category' && searchResult.items.length > 0) {
-    const catLabel = catNames[searchResult.keyword] || 'পণ্য';
+    const catLabel = catNames[searchResult.keyword] || 'গ্যাজেট';
     let listStr = `✨ *আমাদের শপের সকল ${catLabel} কালেকশন:*\n\n`;
     searchResult.items.forEach((p, idx) => {
       const stockBadge = p.in_stock ? '✅ স্টকে আছে' : '❌ স্টক শেষ';
@@ -431,14 +417,14 @@ async function handleCustomerIncomingMessage(phone, text) {
                  `🔗 অর্ডার লিংক: ${p.buy_link}\n\n`;
     });
     listStr += `🚚 *ডেলিভারি চার্জ:* ঢাকা ৳৭০, ঢাকার বাইরে ৳১৩০ (ক্যাশ অন ডেলিভারি)।\n` +
-               `👉 ভাইয়া, যেটি পছন্দ হয়েছে নাম ও ডেলিভারি ঠিকানা দিলে পার্সেল বুক করে দেব ❤️`;
+               `👉 ভাইয়া, যেটি নিতে চান নাম ও ডেলিভারি ঠিকানা দিলে পার্সেল বুক করে দেব ❤️`;
     return listStr;
   }
 
   // ৩. শুধু বাজেট
   if (searchResult.type === 'budget') {
     if (searchResult.items.length === 0) {
-      return `ভাইয়া, ৳${searchResult.budget.max} বাজেটের মধ্যে এই মুহূর্তে কোনো গ্যাজেট স্টকে নেই। ভিজিট করুন: ${SITE_BASE_URL}`;
+      return `ভাইয়া, ৳${searchResult.budget.max} বাজেটের মধ্যে পণ্য নেই। ভিজিট করুন: ${SITE_BASE_URL}`;
     }
     let listStr = `💰 *আপনার ৳${searchResult.budget.max} বাজেটের সেরা গ্যাজেটসমূহ:*\n\n`;
     searchResult.items.forEach((p, idx) => {
@@ -454,11 +440,11 @@ async function handleCustomerIncomingMessage(phone, text) {
 
   const systemPrompt = `তুমি TechXZone (techxzone.shop) এর প্রধান সিনিয়র সেলস কনসালট্যান্ট।
 নিয়মাবলী:
-১. কাস্টমারকে আপন ভাইয়ের মতো "ভাইয়া" সম্বোধন করবে। বিনয়ী ও মিষ্টি কথায় অল্প লাইনে উত্তর দাও।
+১. কাস্টমারকে আপন ভাইয়ের মতো "ভাইয়া" সম্বোধন করবে। বিনয়ী ও মিষ্টি কথায় ১-২ লাইনে উত্তর দাও।
 ২. ফন্ট রুল: কখনো ডাবল স্টার (**) ব্যবহার করবে না! শুধু সিঙ্গেল স্টার (*) ব্যবহার করবে।
 ৩. ডেলিভারি চার্জ: ঢাকা ৳৭০, ঢাকার বাইরে ৳১৩০। ক্যাশ অন ডেলিভারি।
-৪. কাস্টমার যদি পণ্য নিয়ে শুধু জানতে চায় তবে তালিকা দেখে উত্তর দাও।
-৫. কাস্টমার যদি বলে "কনফার্ম করেন", "১টা পাঠান", "নিব", "অর্ডার করবো" কিন্তু ঠিকানা দেয়নি, তখন ঠিক এই সুন্দর ফাঁকা ফর্মটি দেবে:
+৪. কাস্টমার যদি পণ্য নিয়ে শুধু প্রশ্ন করে, ডেলিভারি চার্জ জানতে চায়, তবে শুধু উত্তর দাও।
+৫. কাস্টমার যদি বলে "কনফার্ম করেন", "১টা পাঠান", "নিব" ইত্যাদি কিন্তু ঠিকানা দেয়নি, তখন উত্তরের শুরুতে ঠিক এই সুন্দর ফাঁকা ফর্মটি দেবে:
 
 📋 *ক্যাশ অন ডেলিভারি অর্ডার ফর্ম*
 ━━━━━━━━━━━━━━━━━━━━
@@ -469,7 +455,7 @@ async function handleCustomerIncomingMessage(phone, text) {
 *৫. পণ্যের নাম :* [পণ্যটির নাম]
 ━━━━━━━━━━━━━━━━━━━━
 
-৬. কাস্টমার নাম, সম্পূর্ণ ঠিকানা ও মোবাইল দিলে উত্তরের একদম শেষে বাধ্যতামূলক এই ট্যাগটি দেবে:
+৬. কাস্টমার ফর্ম পূরণ করে পাঠালে বা নাম, ঠিকানা ও মোবাইল দিলে উত্তরের একদম শেষে বাধ্যতামূলক এই ট্যাগটি দেবে:
 [[ORDER:{"product_id":ID,"product_name":"নাম","price":দাম,"qty":1,"name":"কাস্টমারের নাম","phone":"${cleanUserPhone}","address":"সম্পূর্ণ ঠিকানা"}]]
 
 প্রাসঙ্গিক পণ্য তালিকা:
@@ -590,13 +576,13 @@ async function startWhatsAppBot() {
           await sock.sendPresenceUpdate('composing', sender);
         } catch (e) {}
 
-        // ভয়েস নোট নিখুঁতভাবে টেক্সট করা
+        // ভয়েস নোট সরাসরি টেক্সট করা
         if (isAudio) {
           try {
             const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
             const mime = msgContent.audioMessage.mimetype || 'audio/ogg';
             text = await transcribeAudioWithGemini(buffer, mime);
-            addLog('info', `[গ্রাহকের ভয়েস]: "${text}"`);
+            addLog('info', `[গ্রাহকের ভয়েস ট্রান্সক্রিপশন]: "${text}"`);
           } catch (e) {
             addLog('error', `Voice download error: ${e.message}`);
           }
@@ -612,7 +598,7 @@ async function startWhatsAppBot() {
 
         addLog('info', `[গ্রাহক]: ${text}`);
 
-        // এআই উত্তর তৈরি
+        // এআই রেসপন্স
         let replyText = await handleCustomerIncomingMessage(sender, text);
         replyText = replyText.replace(/\*\*/g, '*');
 
@@ -620,7 +606,7 @@ async function startWhatsAppBot() {
           replyText = `🎤 *আপনার ভয়েস:* "${text}"\n\n${replyText}`;
         }
 
-        // ফর্ম আলাদা এবং টেক্সট আলাদা মেসেজে পাঠানো
+        // ফর্ম আলাদা পাঠানো (কপি করার সুবিধার জন্য)
         const formRegex = /(📋\s*\*?ক্যাশ অন ডেলিভারি অর্ডার ফর্ম\*?[\s\S]*?━━━━━━━━━━━━━━━━━━━━)/;
         const match = replyText.match(formRegex);
 
@@ -651,7 +637,7 @@ async function startWhatsAppBot() {
   }
 }
 
-// ================= ৯. এক্সপ্রেস সার্ভার ও ড্যাশবোর্ড =================
+// ================= ৯. এক্সপ্রেস সার্ভার =================
 const app = express();
 app.set('trust proxy', 1);
 
